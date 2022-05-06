@@ -2,7 +2,7 @@
 A observer service for indexing flow Accounts public keys and REST service that serves up public key data.
 
 
-### Run Parameters
+## Run Parameters
 `KEYIDX_LOGLEVEL` default: "info"
 <br>Log Level: Takes string log level value for zerolog, "debug", "info", ...</br>
 `KEYIDX_PORT` default: "8888"
@@ -32,7 +32,7 @@ A observer service for indexing flow Accounts public keys and REST service that 
 `KEYIDX_MAXBLOCKRANGE` default: 1000
 <br>Max Block Range: number of blocks that will trigger a bulk load if services falls behind.</br>
 
-### How to Run
+## How to Run
 Since this is a golang service there are many ways to run it. Below are two ways to run this service
 #### Command line
 ```go run .```
@@ -41,7 +41,7 @@ Create a docker container<br>
 ```docker build -t key-indexer .```
 Run the docker and map the port <br>
 ```docker run -it -p 8888:8888 --env key-indexer```
-### REST service
+## REST service
 `Endpoints`
 * <root>/keys/{public key}
 <p>note: public key is in base64 format
@@ -49,18 +49,19 @@ serves up json object</p>
 
 ```
 {
-	"publicKey": string
-	"accounts" : array of account
+	"publicKey": string  // public key string in base64
+	"accounts" : account object array
 }
 
-account: [{
-	"account": string
-	"keyId": string // index of the key
-	"weight": int // signing weight of the key
-	"signingAlgo": int // key signing algo
-	"hashingAlgo": int // key hashing algo
+account object:
+{
+	"account": string    // address
+	"keyId": string      // index of the key
+	"weight": int        // signing weight of the key
+	"signingAlgo": int   // key signing algo
+	"hashingAlgo": int   // key hashing algo
 	"isRevoked": boolean // key has been revoked
-}]
+}
 ```
 
 `signingAlgo` values: 0: unknown, 1: BLSBLS12381, 2: ECDSA_P256, 3: ECDSASecp256k1
@@ -72,8 +73,8 @@ account: [{
 
 ```
 {
-"publicKeyCount": int // total public keys indexed
-"currentBlockHeight": int // current block of access node
+"publicKeyCount": int       // total public keys indexed
+"currentBlockHeight": int   // current block of access node
 "updatedToBlockHeight": int // block data is updated against
 }
 ```
