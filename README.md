@@ -56,7 +56,7 @@ Run the docker and map the port <br>
 ```docker run -it -p 8888:8888 --env key-indexer```
 ## REST service
 `Endpoints`
-* <root>/keys/{public key}
+* \<root\>/keys/{public key}
 <p>note: public key is in base64 format
 serves up json object</p>
 
@@ -81,7 +81,7 @@ account object:
 
 `hashingAlgo` values: 0: unknown, 1: "SHA2_256", 2: "SHA2_384", 3: "SHA3_256", 4: "SHA3_384", 5: "KMAC128", 6: "Keccak_256"
 
-* <root>/keys-status
+* \<root\>/keys-status
 <p>note: this endpoint gives ability to see if the server is active and updating</p>
 
 ```
