@@ -203,6 +203,7 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 				i--
 				continue
 			}
+
 			addresses = append(addresses, addr)
 		}
 		if len(addresses) > 0 {

@@ -107,7 +107,7 @@ func (d *Database) updateBlockHeight(height uint64) error {
 	})
 }
 
-func (d *Database) GetBlockHeight() (uint64, error) {
+func (d *Database) GetUpdatedBlockHeight() (uint64, error) {
 	var blockHeight uint64 = 0
 	err := d.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte("height"))
@@ -162,7 +162,7 @@ func (d *Database) Stats() PublicKeyStatus {
 		}
 		return nil
 	})
-	value, err := d.GetBlockHeight()
+	value, err := d.GetUpdatedBlockHeight()
 	stats.UpdatedToBlock = int(value)
 	if err != nil {
 		stats.UpdatedToBlock = -1

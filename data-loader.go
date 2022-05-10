@@ -29,8 +29,9 @@ import (
 )
 
 type DataLoader struct {
-	db     Database
-	config Params
+	db          Database
+	config      Params
+	addressChan chan []flow.Address
 }
 
 type PublicKey struct {
@@ -91,11 +92,51 @@ func (s *DataLoader) ProcessAddressData(keys []PublicKey, err error) {
 		log.Warn().Err(err).Msg("not able to save key information")
 	}
 }
+
 func NewDataLoader(db Database, p Params) *DataLoader {
 	s := DataLoader{}
+	s.addressChan = make(chan []flow.Address)
 	s.db = db
 	s.config = p
 	return &s
+}
+
+func (s *DataLoader) SetupAddressLoader() (uint64, error) {
+	config := DefaultConfig
+	config.FlowAccessNodeURL = s.config.FlowUrl
+	config.ChainID = flow.ChainID(s.config.ChainId)
+	config.BatchSize = s.config.BatchSize
+	config.ignoreZeroWeight = s.config.IgnoreZeroWeight
+	config.ignoreRevoked = s.config.IgnoreRevoked
+	config.ConcurrentClients = s.config.ConcurrenClients
+	config.maxAcctKeys = s.config.MaxAcctKeys
+
+	blockHeight, err := RunAddressCadenceScript(
+		context.Background(),
+		log.Logger,
+		config,
+		GetAccountKeys,
+		s.NewGetAccountKeysHandler(s.ProcessAddressData),
+		s.addressChan,
+	)
+	log.Info().Err(err).Msgf("RunAddressCadenceScript has run %d", blockHeight)
+	return blockHeight, err
+}
+
+func (s *DataLoader) RunAllAddressesLoader() error {
+	config := DefaultConfig
+	config.FlowAccessNodeURL = s.config.FlowUrl
+	config.ChainID = flow.ChainID(s.config.ChainId)
+	config.BatchSize = s.config.BatchSize
+	config.ignoreZeroWeight = s.config.IgnoreZeroWeight
+	config.ignoreRevoked = s.config.IgnoreRevoked
+	config.ConcurrentClients = s.config.ConcurrenClients
+	config.maxAcctKeys = s.config.MaxAcctKeys
+
+	height, err := GetAllAddresses(context.Background(), log.Logger, config, s.addressChan)
+	// save height for next load time
+	s.db.updateBlockHeight(height)
+	return err
 }
 
 func (s *DataLoader) RunBulkLoader() (uint64, error) {

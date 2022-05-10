@@ -48,10 +48,10 @@ func (fa *FlowAdapter) GetCurrentBlockHeight() (uint64, error) {
 	return block.Height, nil
 }
 
-func (fa *FlowAdapter) GetAddressesFromBlockEvents(concurrenClients int, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]string, uint64, bool) {
+func (fa *FlowAdapter) GetAddressesFromBlockEvents(concurrenClients int, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]flow.Address, uint64, bool) {
 	itemsPerRequest := 240
 	eventTypes := []string{"flow.AccountKeyAdded", "flow.AccountKeyRemoved"}
-	var addresses []string
+	var addresses []flow.Address
 	restartBulkLoad := true
 	currentHeight, err := fa.GetCurrentBlockHeight()
 	if err != nil {
@@ -120,8 +120,8 @@ type AccountKeyAdded struct {
 	} `json:"value"`
 }
 
-func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) ([]string, bool) {
-	var addresses []string
+func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) ([]flow.Address, bool) {
+	var addresses []flow.Address
 	restartBulkLoad := false
 	events, err := client.GetEventsForHeightRange(context, query)
 	if err != nil {
@@ -135,7 +135,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 			for _, field := range data.Value.Fields {
 				if field.Name == "address" {
 					// log.Debug().Msgf("address: %s", field.Value.Value)
-					addresses = append(addresses, field.Value.Value)
+					addresses = append(addresses, flow.HexToAddress(field.Value.Value))
 				}
 			}
 		}
@@ -144,12 +144,12 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 	return addresses, restartBulkLoad
 }
 
-func (fa *FlowAdapter) GetEventAddresses(maxClients int, queries []client.EventRangeQuery) ([]string, bool) {
-	var allAddresses []string
+func (fa *FlowAdapter) GetEventAddresses(maxClients int, queries []client.EventRangeQuery) ([]flow.Address, bool) {
+	var allAddresses []flow.Address
 	restartBulkLoad := false
 	var wg sync.WaitGroup
 	eventRangeChan := make(chan client.EventRangeQuery)
-	addressChan := make(chan []string)
+	addressChan := make(chan []flow.Address)
 
 	go func() {
 		for address := range addressChan {
@@ -192,9 +192,9 @@ func (fa *FlowAdapter) GetEventAddresses(maxClients int, queries []client.EventR
 	return allAddresses, restartBulkLoad
 }
 
-func unique(addresses []string) []string {
-	keys := make(map[string]bool)
-	list := []string{}
+func unique(addresses []flow.Address) []flow.Address {
+	keys := make(map[flow.Address]bool)
+	list := []flow.Address{}
 	for _, entry := range addresses {
 		if _, value := keys[entry]; !value {
 			keys[entry] = true

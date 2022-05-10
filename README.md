@@ -30,9 +30,6 @@ A observer service for indexing flow Accounts public keys and REST service that 
 `KEYIDX_IGNOREREVOKED` default: true
 <br>Ignroe Revoked: tells the cadenc escript to ignore public keys that have been revoked. These keys will not be indexed</br>
 
-`KEYIDX_PURGERELOADONSTART` default: false
-<br>Purge Reload On Start: force purging existing database and run a bulk reload</br>
-
 `KEYIDX_CONCURRENCLIENTS` default: 2
 <br>Concurrent Clients: number of clients to spin up when bulk loading or incremental data loading</br>
 

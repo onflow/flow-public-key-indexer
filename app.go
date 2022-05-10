@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/onflow/flow-go-sdk"
 	"github.com/rs/zerolog/log"
 )
 
@@ -21,7 +22,6 @@ type Params struct {
 	BatchSize           int    `default:"500"`
 	IgnoreZeroWeight    bool   `default:"true"`
 	IgnoreRevoked       bool   `default:"true"`
-	PurgeReloadOnStart  bool   `default:"false"`
 	ConcurrenClients    int    `default:"2"`
 	WaitNumBlocks       int    `default:"500"`
 	BlockPolIntervalSec int    `default:"120"`
@@ -51,14 +51,13 @@ func (a *App) Initialize(params Params) {
 	a.DB = d.Init(params.DbPath)
 	a.flowClient = NewFlowClient(strings.TrimSpace(a.p.FlowUrl))
 	a.dataLoader = NewDataLoader(d, params)
-
-	a.loadKeyData()
-
-	// a.saveMockData()
-	// d.ReadValues()
 }
 
 func (a *App) Run() {
+
+	// kick off data loader
+	a.loadPublicKeyData()
+
 	// init router
 	r := mux.NewRouter()
 	r.HandleFunc("/keys/{id}", a.getKey).Methods("GET")
@@ -66,8 +65,6 @@ func (a *App) Run() {
 	// handleRequests()
 	log.Info().Msgf("Serving on PORT %s", a.p.Port)
 	log.Fatal().Err(http.ListenAndServe(":"+a.p.Port, r)).Msg("Server at %s crashed!")
-
-	log.Info().Msg("Here we are ")
 }
 
 func (a *App) getStatus(w http.ResponseWriter, r *http.Request) {
@@ -116,15 +113,13 @@ func (a *App) getKey(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, value)
 }
 
-func (a *App) loadKeyData() {
-
-	// purge and reload key data
-	if a.p.PurgeReloadOnStart {
-		a.DB.ClearAllData()
-		a.bulkLoad()
+func (a *App) loadPublicKeyData() {
+	a.dataLoader.SetupAddressLoader()
+	lowerBlkHeight, _ := a.DB.GetUpdatedBlockHeight()
+	if lowerBlkHeight == uint64(0) {
+		go func() { a.dataLoader.RunAllAddressesLoader() }()
 	}
 
-	a.runIncrementalLoader(a.p.MaxBlockRange, a.p.WaitNumBlocks)
 	// start ticker
 	ticker := time.NewTicker(time.Duration(a.p.BlockPolIntervalSec) * time.Second)
 	quit := make(chan struct{})
@@ -132,7 +127,14 @@ func (a *App) loadKeyData() {
 		for {
 			select {
 			case <-ticker.C:
-				a.runIncrementalLoader(a.p.MaxBlockRange, a.p.WaitNumBlocks)
+				go func() {
+					addresses, forceRestart := a.increamentalLoad(a.p.MaxBlockRange, a.p.WaitNumBlocks)
+					if forceRestart {
+						log.Info().Msg("Force restart bulk load")
+						a.bulkLoad()
+					}
+					a.dataLoader.addressChan <- addresses
+				}()
 			case <-quit:
 				log.Info().Msg("ticket is stopped")
 				ticker.Stop()
@@ -142,25 +144,9 @@ func (a *App) loadKeyData() {
 	}()
 }
 
-func (a *App) runIncrementalLoader(maxBlockRange, waitNumBlocks int) {
-	addresses, forceRestart := a.increamentalLoad(maxBlockRange, waitNumBlocks)
-	if forceRestart {
-		a.DB.ClearAllData()
-		a.bulkLoad()
-	} else if len(addresses) > 0 {
-		// load these addresses
-		blockHeight, err := a.dataLoader.RunAddressLoader(addresses)
-		if err != nil {
-			log.Warn().Err(err).Msg("could not load addresses")
-		}
-		if err == nil {
-			// only updated block height if no errors
-			a.DB.updateBlockHeight(blockHeight)
-		}
-	}
-}
-
 func (a *App) bulkLoad() uint64 {
+	// clear to get ready for bulk load
+	a.DB.ClearAllData()
 	start := time.Now()
 	log.Info().Msg("Start Bulk Key Load")
 	blockHeight, errLoad := a.dataLoader.RunBulkLoader()
@@ -173,12 +159,17 @@ func (a *App) bulkLoad() uint64 {
 	return blockHeight
 }
 
-func (a *App) increamentalLoad(maxBlockRange int, waitNumBlocks int) ([]string, bool) {
+func (a *App) increamentalLoad(maxBlockRange int, waitNumBlocks int) ([]flow.Address, bool) {
 	start := time.Now()
-	lowerBlkHeight, errBh := a.DB.GetBlockHeight()
+	lowerBlkHeight, errBh := a.DB.GetUpdatedBlockHeight()
+	currentBlock, err := a.flowClient.GetCurrentBlockHeight()
 	if lowerBlkHeight == 0 {
-		var addrs []string
-		return addrs, true
+		// guard against bulk load taking a long time
+		// get addresses from short block range to start incremental load
+		lowerBlkHeight = currentBlock - uint64(waitNumBlocks)
+	}
+	if err != nil {
+		log.Warn().Err(errBh).Msg("could not get current block height from api")
 	}
 	if errBh != nil {
 		log.Warn().Err(errBh).Msg("could not bulk load keys")

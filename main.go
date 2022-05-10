@@ -28,7 +28,7 @@ func main() {
 	lvl, err := zerolog.ParseLevel(p.LogLevel)
 	if err == nil {
 		zerolog.SetGlobalLevel(lvl)
-		log.Info().Msgf("Setting log level to %s", lvl.String())
+		log.Info().Msgf("Set log level to %s", lvl.String())
 	}
 
 	a.Initialize(p)

@@ -189,6 +189,74 @@ func BatchScriptAddresses(
 	return currentBlock.Height, nil
 }
 
+func GetAllAddresses(
+	ctx context.Context,
+	log zerolog.Logger,
+	conf Config,
+	addressChan chan []flow.Address,
+) (height uint64, err error) {
+	flowClient := getFlowClient(conf.FlowAccessNodeURL)
+
+	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
+	if err != nil {
+		return 0, err
+	}
+
+	ap, err := InitAddressProvider(ctx, log, conf.ChainID, currentBlock.ID, flowClient, conf.Pause)
+	if err != nil {
+		return 0, err
+	}
+	ap.GenerateAddressBatches(addressChan, conf.BatchSize)
+
+	return currentBlock.Height, nil
+}
+
+func RunAddressCadenceScript(
+	ctx context.Context,
+	log zerolog.Logger,
+	conf Config,
+	script string,
+	handler func(cadence.Value),
+	addressChan chan []flow.Address,
+) (height uint64, err error) {
+	code := []byte(script)
+
+	flowClient := getFlowClient(conf.FlowAccessNodeURL)
+
+	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
+	if err != nil {
+		return 0, err
+	}
+
+	for i := 0; i < conf.ConcurrentClients; i++ {
+		go func() {
+			// Each worker has a separate Flow client
+			client := getFlowClient(conf.FlowAccessNodeURL)
+			defer func() {
+				err = client.Close()
+				if err != nil {
+					log.Warn().
+						Err(err).
+						Msg("error closing client")
+				}
+			}()
+
+			// Get the batches of address through addressChan,
+			// run the script with that batch of addresses,
+			// and pass the result to the handler
+
+			for accountAddresses := range addressChan {
+				accountsCadenceValues := convertAddresses(accountAddresses)
+				arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.maxAcctKeys), cadence.NewBool(conf.ignoreZeroWeight), cadence.NewBool(conf.ignoreRevoked)}
+				result := retryScriptUntilSuccess(ctx, log, currentBlock.Height, code, arguments, client)
+				handler(result)
+			}
+		}()
+	}
+
+	return currentBlock.Height, nil
+}
+
 func getBlockHeight(ctx context.Context, conf Config, flowClient *flowclient.Client) (*flow.BlockHeader, error) {
 	if conf.AtBlockHeight != 0 {
 		blk, err := flowClient.GetBlockByHeight(ctx, conf.AtBlockHeight)
