@@ -49,7 +49,7 @@ func (fa *FlowAdapter) GetCurrentBlockHeight() (uint64, error) {
 }
 
 func (fa *FlowAdapter) GetAddressesFromBlockEvents(concurrenClients int, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]flow.Address, uint64, bool) {
-	itemsPerRequest := 240
+	itemsPerRequest := 240 // access node can only handel 250
 	eventTypes := []string{"flow.AccountKeyAdded", "flow.AccountKeyRemoved"}
 	var addresses []flow.Address
 	restartBulkLoad := true
@@ -57,16 +57,6 @@ func (fa *FlowAdapter) GetAddressesFromBlockEvents(concurrenClients int, startBl
 	if err != nil {
 		log.Error().Err(err).Msg("Could not get current block height")
 		return addresses, currentHeight, restartBulkLoad
-	}
-	totalRange := int(currentHeight - startBlockheight)
-	if totalRange >= maxBlockRange {
-		log.Warn().Err(err).Msgf("num of blocks behind greater than threshold %d", totalRange)
-		return addresses, currentHeight, restartBulkLoad
-	}
-
-	// need to surpass number of blocks to wait
-	if totalRange < waitNumBlocks {
-		return addresses, currentHeight, !restartBulkLoad
 	}
 
 	// create chunks to make sure query limit is not exceeded
@@ -78,7 +68,6 @@ func (fa *FlowAdapter) GetAddressesFromBlockEvents(concurrenClients int, startBl
 	}
 
 	addrs, restartDataLoader := fa.GetEventAddresses(concurrenClients, chunksEvents)
-
 	return unique(addrs), currentHeight, restartDataLoader
 }
 
@@ -123,6 +112,7 @@ type AccountKeyAdded struct {
 func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) ([]flow.Address, bool) {
 	var addresses []flow.Address
 	restartBulkLoad := false
+	log.Debug().Msgf("query %v", query)
 	events, err := client.GetEventsForHeightRange(context, query)
 	if err != nil {
 		log.Error().Err(err).Msgf("Could not get events in block range %d", query.EndHeight-query.StartHeight)
@@ -134,13 +124,13 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 			json.Unmarshal([]byte(evt.Payload), &data)
 			for _, field := range data.Value.Fields {
 				if field.Name == "address" {
-					// log.Debug().Msgf("address: %s", field.Value.Value)
+					log.Debug().Msgf("xxx address: %s", field.Value.Value)
 					addresses = append(addresses, flow.HexToAddress(field.Value.Value))
 				}
 			}
 		}
 	}
-
+	log.Debug().Msgf("num addresses %v", len(addresses))
 	return addresses, restartBulkLoad
 }
 
@@ -153,7 +143,9 @@ func (fa *FlowAdapter) GetEventAddresses(maxClients int, queries []client.EventR
 
 	go func() {
 		for address := range addressChan {
+			log.Debug().Msgf("have addrs to add to all address %d", len(address))
 			allAddresses = append(allAddresses, address...)
+			log.Debug().Msgf("addresses count in all addresses %d", len(allAddresses))
 		}
 	}()
 
@@ -187,8 +179,10 @@ func (fa *FlowAdapter) GetEventAddresses(maxClients int, queries []client.EventR
 	}
 
 	wg.Wait()
+
 	close(addressChan)
 	close(eventRangeChan)
+
 	return allAddresses, restartBulkLoad
 }
 

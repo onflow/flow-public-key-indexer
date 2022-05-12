@@ -46,22 +46,21 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 }
 
 func (a *App) Initialize(params Params) {
-	d := Database{}
 	a.p = params
-	a.DB = d.Init(params.DbPath)
+	a.DB = NewDatabase(params.DbPath)
 	a.flowClient = NewFlowClient(strings.TrimSpace(a.p.FlowUrl))
-	a.dataLoader = NewDataLoader(d, params)
+	a.dataLoader = NewDataLoader(*a.DB, *a.flowClient, params)
 }
 
 func (a *App) Run() {
 
 	// kick off data loader
-	a.loadPublicKeyData()
+	go func() { a.loadPublicKeyData() }()
 
 	// init router
 	r := mux.NewRouter()
 	r.HandleFunc("/keys/{id}", a.getKey).Methods("GET")
-	r.HandleFunc("/keys-status", a.getStatus).Methods("GET")
+	r.HandleFunc("/status", a.getStatus).Methods("GET")
 	// handleRequests()
 	log.Info().Msgf("Serving on PORT %s", a.p.Port)
 	log.Fatal().Err(http.ListenAndServe(":"+a.p.Port, r)).Msg("Server at %s crashed!")
@@ -109,15 +108,22 @@ func (a *App) getKey(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusNotFound, "")
 		return
 	}
-
 	respondWithJSON(w, http.StatusOK, value)
 }
 
 func (a *App) loadPublicKeyData() {
-	a.dataLoader.SetupAddressLoader()
+	addressChan := make(chan []flow.Address)
+	a.dataLoader.SetupAddressLoader(addressChan)
+
+	// note: get current block pass into incremetal
+	// testing
+	currentBlock, _ := a.flowClient.GetCurrentBlockHeight()
+	a.DB.updateLoadingBlockHeight(currentBlock)
 	lowerBlkHeight, _ := a.DB.GetUpdatedBlockHeight()
+
+	// if restarted during initial loading, restart bulk load
 	if lowerBlkHeight == uint64(0) {
-		go func() { a.dataLoader.RunAllAddressesLoader() }()
+		go func() { a.bulkLoad(addressChan) }()
 	}
 
 	// start ticker
@@ -128,12 +134,7 @@ func (a *App) loadPublicKeyData() {
 			select {
 			case <-ticker.C:
 				go func() {
-					addresses, forceRestart := a.increamentalLoad(a.p.MaxBlockRange, a.p.WaitNumBlocks)
-					if forceRestart {
-						log.Info().Msg("Force restart bulk load")
-						a.bulkLoad()
-					}
-					a.dataLoader.addressChan <- addresses
+					a.increamentalLoad(addressChan, a.p.MaxBlockRange, a.p.WaitNumBlocks)
 				}()
 			case <-quit:
 				log.Info().Msg("ticket is stopped")
@@ -142,41 +143,63 @@ func (a *App) loadPublicKeyData() {
 			}
 		}
 	}()
+
 }
 
-func (a *App) bulkLoad() uint64 {
+func (a *App) bulkLoad(addressChan chan []flow.Address) {
 	// clear to get ready for bulk load
 	a.DB.ClearAllData()
 	start := time.Now()
 	log.Info().Msg("Start Bulk Key Load")
-	blockHeight, errLoad := a.dataLoader.RunBulkLoader()
+	currentBlock, _ := a.flowClient.GetCurrentBlockHeight()
+	// sets starting block height for incremental loader
+	a.DB.updateLoadingBlockHeight(currentBlock - uint64(200))
+	errLoad := a.dataLoader.RunAllAddressesLoader(addressChan)
 	if errLoad != nil {
-		log.Fatal().Err(errLoad).Msg("could not bulk load keys")
+		log.Fatal().Err(errLoad).Msg("could not bulk load public keys")
 	}
-	a.DB.updateBlockHeight(blockHeight)
+	// indicates bulk load has finished
+	a.DB.updateBlockHeight(currentBlock)
 	duration := time.Since(start)
-	log.Info().Msgf("End Bulk Key Load, block height %d duration sec %f", blockHeight, duration.Seconds())
-	return blockHeight
+	log.Info().Msgf("End Bulk Load, duration %f min", duration.Minutes())
 }
 
-func (a *App) increamentalLoad(maxBlockRange int, waitNumBlocks int) ([]flow.Address, bool) {
+func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange int, waitNumBlocks int) {
 	start := time.Now()
-	lowerBlkHeight, errBh := a.DB.GetUpdatedBlockHeight()
+
+	loadingBlkHeight, _ := a.DB.GetLoadingBlockHeight()
+	updatedToBlock, _ := a.DB.GetUpdatedBlockHeight()
 	currentBlock, err := a.flowClient.GetCurrentBlockHeight()
-	if lowerBlkHeight == 0 {
-		// guard against bulk load taking a long time
-		// get addresses from short block range to start incremental load
-		lowerBlkHeight = currentBlock - uint64(waitNumBlocks)
-	}
 	if err != nil {
-		log.Warn().Err(errBh).Msg("could not get current block height from api")
+		log.Warn().Err(err).Msg("could not get current block height from api")
 	}
-	if errBh != nil {
-		log.Warn().Err(errBh).Msg("could not bulk load keys")
+
+	// initial bulk loading is going on
+	isLoading := updatedToBlock == 0
+
+	loadingBlockRange := int(currentBlock) - int(loadingBlkHeight)
+	isLoadingOutOfRange := loadingBlockRange >= maxBlockRange
+
+	if isLoadingOutOfRange {
+		if isLoading {
+			log.Fatal().Msg("loading will not catch up, adjust run parameters to speed up load time")
+			return
+		}
+		log.Warn().Msg("incremental loading will not catch up, starting bulk loading, if this happens again adjust running parameters")
+		go func() { a.bulkLoad(addressChan) }()
+		return
 	}
-	addresses, currentBlockHeight, restart := a.flowClient.GetAddressesFromBlockEvents(a.p.ConcurrenClients, lowerBlkHeight, maxBlockRange, waitNumBlocks)
-	a.DB.updateBlockHeight(currentBlockHeight)
+
+	log.Debug().Msgf("diff curr: %d (%d blks) do inc: %t", currentBlock, loadingBlockRange, loadingBlockRange >= waitNumBlocks)
+	if loadingBlockRange <= waitNumBlocks {
+		// need to wait for more blocks
+		return
+	}
+	restart := a.dataLoader.RunIncAddressesLoader(addressChan, isLoading, loadingBlkHeight)
 	duration := time.Since(start)
-	log.Info().Msgf("Inc Load, %f sec, %d addrs, (%d blk) curr: %d", duration.Seconds(), len(addresses), currentBlockHeight-lowerBlkHeight, currentBlockHeight)
-	return addresses, restart
+	log.Info().Msgf("Inc Load, %f sec, (%d blk) curr: %d", duration.Seconds(), loadingBlockRange, currentBlock)
+	if restart && !isLoading {
+		log.Info().Msg("Force restart bulk load")
+		go func() { a.bulkLoad(addressChan) }()
+	}
 }

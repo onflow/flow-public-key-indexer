@@ -22,14 +22,12 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
 	flowclient "github.com/onflow/flow-go-sdk/client"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 )
 
@@ -66,129 +64,6 @@ var DefaultConfig = Config{
 	ChainID:           "chain-mainnet",
 }
 
-func BatchScript(
-	ctx context.Context,
-	log zerolog.Logger,
-	conf Config,
-	script string,
-	handler func(cadence.Value),
-) (height uint64, err error) {
-	code := []byte(script)
-
-	flowClient := getFlowClient(conf.FlowAccessNodeURL)
-
-	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
-	if err != nil {
-		return 0, err
-	}
-
-	ap, err := InitAddressProvider(ctx, log, conf.ChainID, currentBlock.ID, flowClient, conf.Pause)
-	if err != nil {
-		return 0, err
-	}
-
-	wg := &sync.WaitGroup{}
-	addressChan := make(chan []flow.Address)
-
-	for i := 0; i < conf.ConcurrentClients; i++ {
-		wg.Add(1)
-		go func() {
-			// Each worker has a separate Flow client
-			client := getFlowClient(conf.FlowAccessNodeURL)
-			defer func() {
-				err = client.Close()
-				if err != nil {
-					log.Warn().
-						Err(err).
-						Msg("error closing client")
-				}
-			}()
-
-			// Get the batches of address through addressChan,
-			// run the script with that batch of addresses,
-			// and pass the result to the handler
-
-			for accountAddresses := range addressChan {
-				accountsCadenceValues := convertAddresses(accountAddresses)
-				arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.maxAcctKeys), cadence.NewBool(conf.ignoreZeroWeight), cadence.NewBool(conf.ignoreRevoked)}
-				result := retryScriptUntilSuccess(ctx, log, currentBlock.Height, code, arguments, client)
-				handler(result)
-			}
-
-			wg.Done()
-		}()
-	}
-
-	ap.GenerateAddressBatches(addressChan, conf.BatchSize)
-
-	// Close the addressChan and wait for the workers to finish
-	close(addressChan)
-	wg.Wait()
-
-	return currentBlock.Height, nil
-}
-
-func BatchScriptAddresses(
-	ctx context.Context,
-	log zerolog.Logger,
-	conf Config,
-	script string,
-	handler func(cadence.Value),
-	addresses []string,
-) (height uint64, err error) {
-	code := []byte(script)
-
-	var fetchAddresses []flow.Address
-
-	for _, addr := range addresses {
-		a := flow.HexToAddress(addr)
-		fetchAddresses = append(fetchAddresses, a)
-	}
-
-	batchedAddrs := BatchAddresses(fetchAddresses, conf.BatchSize)
-	flowClient := getFlowClient(conf.FlowAccessNodeURL)
-
-	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
-	if err != nil {
-		log.Warn().Err(err).Msg("Issue getting block height")
-		return 0, err
-	}
-
-	wg := &sync.WaitGroup{}
-
-	for i := 0; i < conf.ConcurrentClients; i++ {
-		wg.Add(1)
-		go func() {
-			// Each worker has a separate Flow client
-			client := getFlowClient(conf.FlowAccessNodeURL)
-			defer func() {
-				err = client.Close()
-				if err != nil {
-					log.Warn().
-						Err(err).
-						Msg("error closing client")
-				}
-			}()
-
-			// Get the batches of address through addressChan,
-			// run the script with that batch of addresses,
-			// and pass the result to the handler
-
-			for _, accountAddresses := range batchedAddrs {
-				accountsCadenceValues := convertAddresses(accountAddresses)
-				arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.maxAcctKeys), cadence.NewBool(conf.ignoreZeroWeight), cadence.NewBool(conf.ignoreRevoked)}
-				result := retryScriptUntilSuccess(ctx, log, currentBlock.Height, code, arguments, client)
-				handler(result)
-			}
-			wg.Done()
-		}()
-	}
-
-	wg.Wait()
-
-	return currentBlock.Height, nil
-}
-
 func GetAllAddresses(
 	ctx context.Context,
 	log zerolog.Logger,
@@ -216,7 +91,7 @@ func RunAddressCadenceScript(
 	log zerolog.Logger,
 	conf Config,
 	script string,
-	handler func(cadence.Value),
+	handler func(cadence.Value, uint64),
 	addressChan chan []flow.Address,
 ) (height uint64, err error) {
 	code := []byte(script)
@@ -246,10 +121,11 @@ func RunAddressCadenceScript(
 			// and pass the result to the handler
 
 			for accountAddresses := range addressChan {
+				currentBlock, _ := getBlockHeight(ctx, conf, flowClient)
 				accountsCadenceValues := convertAddresses(accountAddresses)
 				arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.maxAcctKeys), cadence.NewBool(conf.ignoreZeroWeight), cadence.NewBool(conf.ignoreRevoked)}
 				result := retryScriptUntilSuccess(ctx, log, currentBlock.Height, code, arguments, client)
-				handler(result)
+				handler(result, currentBlock.Height)
 			}
 		}()
 	}
@@ -269,7 +145,6 @@ func getBlockHeight(ctx context.Context, conf Config, flowClient *flowclient.Cli
 		if err != nil {
 			return nil, fmt.Errorf("failed to get the latest block header: %w", err)
 		}
-		log.Debug().Uint64("blockHeight", block.Height).Msg("Fetched block info")
 		return block, nil
 	}
 }
@@ -301,7 +176,7 @@ func retryScriptUntilSuccess(
 			break
 		}
 
-		log.Warn().Msgf("received unknown error, retrying: %s", err.Error())
+		log.Error().Msgf("received unknown error, retrying: %s", err.Error())
 	}
 
 	return result

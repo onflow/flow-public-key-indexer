@@ -57,6 +57,20 @@ func TestChunkManualValues(t *testing.T) {
 	}
 }
 
+func TestChunkSmallEndSegments(t *testing.T) {
+	startResults := map[int]uint64{0: 0, 1: 51, 2: 102, 3: 153}
+	endResults := map[int]uint64{0: 50, 1: 101, 2: 152, 3: 155}
+
+	events := ChunkEventRangeQuery(50, startResults[0], endResults[3], "event_name")
+	if len(events) != len(startResults) {
+		t.Errorf("chunks received: %d should have been %d", len(events), len(startResults))
+	}
+	for index, e := range events {
+		assertBlockRange(t, e, 50)
+		assertBlockValues(t, e, startResults[index], endResults[index])
+	}
+}
+
 func assertBlockRange(t *testing.T, event client.EventRangeQuery, maxRange uint64) {
 	if event.EndHeight-event.StartHeight > maxRange {
 		t.Errorf("block range exceeded: %d", event.EndHeight-event.StartHeight)

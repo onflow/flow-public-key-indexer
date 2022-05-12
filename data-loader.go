@@ -29,9 +29,10 @@ import (
 )
 
 type DataLoader struct {
-	db          Database
-	config      Params
-	addressChan chan []flow.Address
+	DB             Database
+	config         Params
+	fa             FlowAdapter
+	incAddressChan [][]flow.Address
 }
 
 type PublicKey struct {
@@ -47,10 +48,10 @@ type PublicKey struct {
 //go:embed get_keys.cdc
 var GetAccountKeys string
 
-type GetAccountKeysHandler func(keys []PublicKey, err error)
+type GetAccountKeysHandler func(keys []PublicKey, height uint64, err error)
 
-func (s *DataLoader) NewGetAccountKeysHandler(handler GetAccountKeysHandler) func(value cadence.Value) {
-	return func(value cadence.Value) {
+func (s *DataLoader) NewGetAccountKeysHandler(handler GetAccountKeysHandler) func(value cadence.Value, height uint64) {
+	return func(value cadence.Value, height uint64) {
 		allAccountsKeys := []PublicKey{}
 		for _, allKeys := range value.(cadence.Dictionary).Pairs {
 			address := allKeys.Key.(cadence.Address)
@@ -67,41 +68,29 @@ func (s *DataLoader) NewGetAccountKeysHandler(handler GetAccountKeysHandler) fun
 					signatureAlgorithm: rawStruct.Fields[5].ToGoValue().(uint8),
 					account:            address.String(),
 				}
-				//handler(address, allKeys, nil)
 				keys = append(keys, data)
 				counter = counter + 1
 			}
 			allAccountsKeys = append(allAccountsKeys, keys...)
 			if counter >= s.config.MaxAcctKeys {
-				log.Info().Msgf("Account max keys reached %s %d %d", address.String(), counter, s.config.MaxAcctKeys)
+				log.Debug().Msgf("Account max keys reached %s %d", address.String(), s.config.MaxAcctKeys)
 			}
 		}
 
-		handler(allAccountsKeys, nil)
+		handler(allAccountsKeys, height, nil)
 	}
 }
 
-func (s *DataLoader) ProcessAddressData(keys []PublicKey, err error) {
-	if err != nil {
-		log.Err(err).Msgf("failed to get account key info")
-		return
-	}
-	pkis := convertPublicKey(keys)
-	// send to db
-	if err := s.db.BulkAddPublicKey(pkis); err != nil {
-		log.Warn().Err(err).Msg("not able to save key information")
-	}
-}
-
-func NewDataLoader(db Database, p Params) *DataLoader {
+func NewDataLoader(DB Database, fa FlowAdapter, p Params) *DataLoader {
 	s := DataLoader{}
-	s.addressChan = make(chan []flow.Address)
-	s.db = db
+	s.incAddressChan = [][]flow.Address{}
+	s.DB = DB
+	s.fa = fa
 	s.config = p
 	return &s
 }
 
-func (s *DataLoader) SetupAddressLoader() (uint64, error) {
+func (s *DataLoader) SetupAddressLoader(addressChan chan []flow.Address) (uint64, error) {
 	config := DefaultConfig
 	config.FlowAccessNodeURL = s.config.FlowUrl
 	config.ChainID = flow.ChainID(s.config.ChainId)
@@ -117,13 +106,12 @@ func (s *DataLoader) SetupAddressLoader() (uint64, error) {
 		config,
 		GetAccountKeys,
 		s.NewGetAccountKeysHandler(s.ProcessAddressData),
-		s.addressChan,
+		addressChan,
 	)
-	log.Info().Err(err).Msgf("RunAddressCadenceScript has run %d", blockHeight)
 	return blockHeight, err
 }
 
-func (s *DataLoader) RunAllAddressesLoader() error {
+func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) error {
 	config := DefaultConfig
 	config.FlowAccessNodeURL = s.config.FlowUrl
 	config.ChainID = flow.ChainID(s.config.ChainId)
@@ -133,57 +121,33 @@ func (s *DataLoader) RunAllAddressesLoader() error {
 	config.ConcurrentClients = s.config.ConcurrenClients
 	config.maxAcctKeys = s.config.MaxAcctKeys
 
-	height, err := GetAllAddresses(context.Background(), log.Logger, config, s.addressChan)
+	height, err := GetAllAddresses(context.Background(), log.Logger, config, addressChan)
 	// save height for next load time
-	s.db.updateBlockHeight(height)
+	s.DB.updateBlockHeight(height)
 	return err
 }
 
-func (s *DataLoader) RunBulkLoader() (uint64, error) {
-	config := DefaultConfig
-	config.FlowAccessNodeURL = s.config.FlowUrl
-	config.ChainID = flow.ChainID(s.config.ChainId)
-	config.BatchSize = s.config.BatchSize
-	config.ignoreZeroWeight = s.config.IgnoreZeroWeight
-	config.ignoreRevoked = s.config.IgnoreRevoked
-	config.ConcurrentClients = s.config.ConcurrenClients
-	config.maxAcctKeys = s.config.MaxAcctKeys
-
-	blockHeight, err := BatchScript(
-		context.Background(),
-		log.Logger,
-		config,
-		GetAccountKeys,
-		s.NewGetAccountKeysHandler(s.ProcessAddressData),
-	)
-	return blockHeight, err
+func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLoading bool, blockHeight uint64) bool {
+	addresses, currBlockHeight, restart := s.fa.GetAddressesFromBlockEvents(s.config.ConcurrenClients, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
+	s.DB.updateLoadingBlockHeight(currBlockHeight)
+	addressChan <- addresses
+	return restart
 }
 
-func (s *DataLoader) RunAddressLoader(addresses []string) (uint64, error) {
-	config := DefaultConfig
-	config.FlowAccessNodeURL = s.config.FlowUrl
-	config.ChainID = flow.ChainID(s.config.ChainId)
-	config.BatchSize = s.config.BatchSize
-	config.ignoreZeroWeight = s.config.IgnoreZeroWeight
-	config.ignoreRevoked = s.config.IgnoreRevoked
-	config.ConcurrentClients = s.config.ConcurrenClients
-	config.maxAcctKeys = s.config.MaxAcctKeys
-
-	blockHeight, err := BatchScriptAddresses(
-		context.Background(),
-		log.Logger,
-		config,
-		GetAccountKeys,
-		s.NewGetAccountKeysHandler(s.ProcessAddressData),
-		addresses,
-	)
-	return blockHeight, err
+func (s *DataLoader) ProcessAddressData(keys []PublicKey, height uint64, err error) {
+	if err != nil {
+		log.Err(err).Msgf("failed to get account key info")
+		return
+	}
+	pkis := convertPublicKey(keys, height)
+	// send to DB
+	s.DB.UpdatePublicKeys(pkis)
 }
 
-func convertPublicKey(pks []PublicKey) []PublicKeyIndexer {
+func convertPublicKey(pks []PublicKey, height uint64) []PublicKeyIndexer {
 	allPki := map[string]PublicKeyIndexer{}
 	for _, publicKey := range pks {
-		newAcct := makePublicKeyIndexer(publicKey)
+		newAcct := makePublicKeyIndexer(publicKey, height)
 		pki, found := allPki[publicKey.account]
 		if !found {
 			newPki := PublicKeyIndexer{}
@@ -212,9 +176,10 @@ func convertPublicKey(pks []PublicKey) []PublicKeyIndexer {
 
 }
 
-func makePublicKeyIndexer(pk PublicKey) Account {
+func makePublicKeyIndexer(pk PublicKey, height uint64) Account {
 	return Account{
 		Account:     pk.account,
+		BlockHeight: height,
 		KeyId:       int(pk.keyIndex.Int64()),
 		Weight:      int(pk.weight) / 100000000, // convert to display value
 		SigningAlgo: int(pk.signatureAlgorithm),

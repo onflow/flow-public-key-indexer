@@ -40,7 +40,7 @@ A observer service for indexing flow Accounts public keys and REST service that 
 <br>Block Pol Interval Sec: number of seconds to wait before checking current block height to determine to run an incremental data load</br>
 
 `KEYIDX_MAXBLOCKRANGE` default: 1000
-<br>Max Block Range: number of blocks that will trigger a bulk load if services falls behind.</br>
+<br>Max Block Range: number of blocks that will trigger a bulk load if services falls behind. If this happens try increasing `Batch Size` parameter to a safe amount and not to trigger max computation error when cadence script is executed.</br>
 
 ## How to Run
 Since this is a golang service there are many ways to run it. Below are two ways to run this service

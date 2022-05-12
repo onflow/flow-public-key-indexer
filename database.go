@@ -13,26 +13,33 @@ type Database struct {
 }
 
 type Account struct {
-	Account     string `json: "account"`
-	KeyId       int    `json: "keyId"`
-	Weight      int    `json: "weight"`
-	SigningAlgo int    `json: "signingAlgo"`
-	HashingAlgo int    `json: "hashingAlgo"`
-	IsRevoked   bool   `json: "isRevoked"`
+	Account     string `json:"account"`
+	BlockHeight uint64 `json:"-"`
+	KeyId       int    `json:"keyId"`
+	Weight      int    `json:"weight"`
+	SigningAlgo int    `json:"signingAlgo"`
+	HashingAlgo int    `json:"hashingAlgo"`
+	IsRevoked   bool   `json:"isRevoked"`
 }
 
 type PublicKeyIndexer struct {
-	PublicKey string    `json: "publicKey"`
-	Accounts  []Account `json: "accounts"`
+	PublicKey string    `json:"publicKey"`
+	Accounts  []Account `json:"accounts"`
 }
 
 type PublicKeyStatus struct {
-	Count          int `json: "publicKeyCount"`
-	CurrentBlock   int `json: "currentBlockHeight"`
-	UpdatedToBlock int `json: "updatedToBlockHeight`
+	Count          int  `json:"publicKeyCount"`
+	CurrentBlock   int  `json:"currentBlockHeight"`
+	UpdatedToBlock int  `json:"updatedToBlockHeight"`
+	PendingToBlock int  `json:"pendingLoadBlockHeight"`
+	IsBulkLoading  bool `json:"isBulkLoading"`
 }
 
-func (d *Database) Init(dbPath string) *Database {
+const UpdatedToBlock = "updatedToBlock"
+const LoadingFromBlock = "loadingFromBlock"
+
+func NewDatabase(dbPath string) *Database {
+	d := Database{}
 	db, err := badger.Open(badger.DefaultOptions(dbPath))
 	if err != nil {
 		log.Error().Msg("Badger db could not be opened")
@@ -40,22 +47,65 @@ func (d *Database) Init(dbPath string) *Database {
 	d.db = db
 
 	//defer db.Close()
-	return d
+	return &d
 }
 
-func (d *Database) BulkAddPublicKey(pkis []PublicKeyIndexer) error {
-	err := d.db.Update(func(txn *badger.Txn) error {
-		for _, pki := range pkis {
-			data, _ := json.Marshal(pki.Accounts)
-			errSet := txn.Set([]byte(pki.PublicKey), []byte(data))
-			if errSet != nil {
-				log.Error().Err(errSet).Msgf("Bulk data load not saved: %s", pki.PublicKey)
-				return errSet
-			}
+func (d *Database) UpdatePublicKeys(pkis []PublicKeyIndexer) {
+	for _, pki := range pkis {
+		err := d.UpsertPublicKey(pki.PublicKey, pki.Accounts)
+		if err != nil {
+			log.Error().Err(err).Msgf("could not save public key info %v", pki.PublicKey)
 		}
-		return nil
+	}
+}
+
+func (d *Database) UpsertPublicKey(publicKey string, accounts []Account) error {
+	err := d.db.Update(func(txn *badger.Txn) error {
+		if _, err := txn.Get([]byte(publicKey)); err == badger.ErrKeyNotFound {
+			data, _ := json.Marshal(accounts)
+			txn.Set([]byte(publicKey), []byte(data))
+			return nil
+		} else {
+			// merge in new accounts
+			keyInfo, err := txn.Get([]byte(publicKey))
+			if err != nil {
+				log.Error().Err(err).Msg("Could not get public key data")
+				return err
+			}
+			return keyInfo.Value(func(val []byte) error {
+				var existingAccounts []Account
+				var newAccounts []Account
+				json.Unmarshal(val, &existingAccounts)
+				// make sure to have unique array
+				for _, a := range accounts {
+					unique := true
+					for _, x := range existingAccounts {
+						if x.Account == a.Account && x.KeyId == a.KeyId && a.BlockHeight > x.BlockHeight {
+							newAccounts = append(newAccounts, a)
+							unique = false
+							break
+						} else {
+							newAccounts = append(newAccounts, x)
+						}
+					}
+					if unique {
+						newAccounts = append(newAccounts, a)
+					}
+				}
+				data, _ := json.Marshal(newAccounts)
+				if err := txn.Set([]byte(publicKey), []byte(data)); err == badger.ErrConflict {
+					txn = d.db.NewTransaction(true)
+					_ = txn.Set([]byte(publicKey), []byte(data))
+				}
+				return nil
+			})
+		}
 	})
-	return err
+	if err != nil {
+		log.Warn().Err(err).Msgf("Data not saved %s", publicKey)
+		return err
+	}
+	return nil
 }
 
 func (d *Database) GetPublicKey(publicKey string, hashAlgo int, signAlgo int, exZero bool, exRevoked bool) (PublicKeyIndexer, error) {
@@ -99,20 +149,36 @@ func (d *Database) GetPublicKey(publicKey string, hashAlgo int, signAlgo int, ex
 	return keyInfo, err
 }
 
-func (d *Database) updateBlockHeight(height uint64) error {
-	return d.db.Update(func(txn *badger.Txn) error {
+func (d *Database) updateBlockHeight(value uint64) error {
+	return updateBlockInfo(d.db, value, UpdatedToBlock)
+}
+
+func (d *Database) updateLoadingBlockHeight(value uint64) error {
+	return updateBlockInfo(d.db, value, LoadingFromBlock)
+}
+
+func updateBlockInfo(db *badger.DB, height uint64, name string) error {
+	return db.Update(func(txn *badger.Txn) error {
 		b := make([]byte, 8)
 		binary.LittleEndian.PutUint64(b, uint64(height))
-		return txn.Set([]byte("height"), []byte(b))
+		return txn.Set([]byte(name), []byte(b))
 	})
 }
 
 func (d *Database) GetUpdatedBlockHeight() (uint64, error) {
+	return GetBlockInfo(d.db, UpdatedToBlock)
+}
+
+func (d *Database) GetLoadingBlockHeight() (uint64, error) {
+	return GetBlockInfo(d.db, LoadingFromBlock)
+}
+
+func GetBlockInfo(db *badger.DB, name string) (uint64, error) {
 	var blockHeight uint64 = 0
-	err := d.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get([]byte("height"))
+	err := db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(name))
 		if err != nil {
-			log.Info().Msgf("block height not stored, will store after load")
+			log.Debug().Msgf("%v blk not stored", name)
 			return err
 		}
 		errValue := item.Value(func(val []byte) error {
@@ -163,9 +229,14 @@ func (d *Database) Stats() PublicKeyStatus {
 		return nil
 	})
 	value, err := d.GetUpdatedBlockHeight()
+	blk, errLoading := d.GetLoadingBlockHeight()
 	stats.UpdatedToBlock = int(value)
+	stats.PendingToBlock = int(blk)
 	if err != nil {
 		stats.UpdatedToBlock = -1
+	}
+	if errLoading != nil {
+		stats.IsBulkLoading = value == 0
 	}
 	stats.Count = itemCount
 	return stats
