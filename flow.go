@@ -161,6 +161,7 @@ func (fa *FlowAdapter) GetEventAddresses(maxClients int, queries []client.EventR
 			}()
 
 			for query := range eventRangeChan {
+				log.Debug().Msgf("Query blocks: %d   %d", query.StartHeight, query.EndHeight)
 				addrs, restart := RunAddressQuery(client, fa.Context, query)
 				if !restart {
 					restartBulkLoad = restart
