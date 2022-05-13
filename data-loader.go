@@ -127,11 +127,11 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) erro
 	return err
 }
 
-func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLoading bool, blockHeight uint64) bool {
+func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLoading bool, blockHeight uint64) (int, bool) {
 	addresses, currBlockHeight, restart := s.fa.GetAddressesFromBlockEvents(s.config.ConcurrenClients, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
 	s.DB.updateLoadingBlockHeight(currBlockHeight)
 	addressChan <- addresses
-	return restart
+	return len(addresses), restart
 }
 
 func (s *DataLoader) ProcessAddressData(keys []PublicKey, height uint64, err error) {

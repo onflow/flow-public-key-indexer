@@ -14,7 +14,7 @@ type Database struct {
 
 type Account struct {
 	Account     string `json:"account"`
-	BlockHeight uint64 `json:"-"`
+	BlockHeight uint64 `json:"blockHeight"`
 	KeyId       int    `json:"keyId"`
 	Weight      int    `json:"weight"`
 	SigningAlgo int    `json:"signingAlgo"`
@@ -76,19 +76,21 @@ func (d *Database) UpsertPublicKey(publicKey string, accounts []Account) error {
 				var existingAccounts []Account
 				var newAccounts []Account
 				json.Unmarshal(val, &existingAccounts)
+				newAccounts = existingAccounts
+
 				// make sure to have unique array
 				for _, a := range accounts {
-					unique := true
-					for _, x := range existingAccounts {
-						if x.Account == a.Account && x.KeyId == a.KeyId && a.BlockHeight > x.BlockHeight {
-							newAccounts = append(newAccounts, a)
-							unique = false
+					found := false
+					for index, x := range existingAccounts {
+						if x.Account == a.Account && x.KeyId == a.KeyId {
+							found = true
+							if a.BlockHeight > x.BlockHeight {
+								newAccounts[index] = a
+							}
 							break
-						} else {
-							newAccounts = append(newAccounts, x)
 						}
 					}
-					if unique {
+					if !found {
 						newAccounts = append(newAccounts, a)
 					}
 				}
@@ -178,7 +180,6 @@ func GetBlockInfo(db *badger.DB, name string) (uint64, error) {
 	err := db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(name))
 		if err != nil {
-			log.Debug().Msgf("%v blk not stored", name)
 			return err
 		}
 		errValue := item.Value(func(val []byte) error {
@@ -234,9 +235,10 @@ func (d *Database) Stats() PublicKeyStatus {
 	stats.PendingToBlock = int(blk)
 	if err != nil {
 		stats.UpdatedToBlock = -1
+		stats.IsBulkLoading = true
 	}
 	if errLoading != nil {
-		stats.IsBulkLoading = value == 0
+		stats.PendingToBlock = -1
 	}
 	stats.Count = itemCount
 	return stats

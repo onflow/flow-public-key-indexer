@@ -59,16 +59,18 @@ func (fa *FlowAdapter) GetAddressesFromBlockEvents(concurrenClients int, startBl
 		return addresses, currentHeight, restartBulkLoad
 	}
 
+	// backing off a few blocks to allow for buffer
+	backOfHeight := currentHeight // - 10
 	// create chunks to make sure query limit is not exceeded
 	var chunksEvents []client.EventRangeQuery
 
 	for _, eventType := range eventTypes {
-		events := ChunkEventRangeQuery(itemsPerRequest, startBlockheight, currentHeight, eventType)
+		events := ChunkEventRangeQuery(itemsPerRequest, startBlockheight, backOfHeight, eventType)
 		chunksEvents = append(chunksEvents, events...)
 	}
 
 	addrs, restartDataLoader := fa.GetEventAddresses(concurrenClients, chunksEvents)
-	return unique(addrs), currentHeight, restartDataLoader
+	return unique(addrs), backOfHeight, restartDataLoader
 }
 
 func ChunkEventRangeQuery(size int, lowBlockHeight, highBlockHeight uint64, eventName string) []client.EventRangeQuery {
@@ -112,7 +114,6 @@ type AccountKeyAdded struct {
 func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) ([]flow.Address, bool) {
 	var addresses []flow.Address
 	restartBulkLoad := false
-	log.Debug().Msgf("query %v", query)
 	events, err := client.GetEventsForHeightRange(context, query)
 	if err != nil {
 		log.Error().Err(err).Msgf("Could not get events in block range %d", query.EndHeight-query.StartHeight)
@@ -124,13 +125,11 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 			json.Unmarshal([]byte(evt.Payload), &data)
 			for _, field := range data.Value.Fields {
 				if field.Name == "address" {
-					log.Debug().Msgf("xxx address: %s", field.Value.Value)
 					addresses = append(addresses, flow.HexToAddress(field.Value.Value))
 				}
 			}
 		}
 	}
-	log.Debug().Msgf("num addresses %v", len(addresses))
 	return addresses, restartBulkLoad
 }
 
@@ -143,9 +142,7 @@ func (fa *FlowAdapter) GetEventAddresses(maxClients int, queries []client.EventR
 
 	go func() {
 		for address := range addressChan {
-			log.Debug().Msgf("have addrs to add to all address %d", len(address))
 			allAddresses = append(allAddresses, address...)
-			log.Debug().Msgf("addresses count in all addresses %d", len(allAddresses))
 		}
 	}()
 
