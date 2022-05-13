@@ -22,6 +22,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/onflow/cadence"
@@ -121,16 +122,37 @@ func RunAddressCadenceScript(
 			// and pass the result to the handler
 
 			for accountAddresses := range addressChan {
-				currentBlock, _ := getBlockHeight(ctx, conf, flowClient)
-				accountsCadenceValues := convertAddresses(accountAddresses)
-				arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.maxAcctKeys), cadence.NewBool(conf.ignoreZeroWeight), cadence.NewBool(conf.ignoreRevoked)}
-				result := retryScriptUntilSuccess(ctx, log, currentBlock.Height, code, arguments, client)
-				handler(result, currentBlock.Height)
+				runScript(ctx, conf, accountAddresses, log, code, flowClient, handler)
 			}
 		}()
 	}
 
 	return currentBlock.Height, nil
+}
+
+func runScript(
+	ctx context.Context,
+	conf Config,
+	addresses []flow.Address,
+	log zerolog.Logger,
+	script []byte,
+	flowClient *flowclient.Client,
+	handler func(cadence.Value, uint64),
+) {
+	currentBlock, _ := getBlockHeight(ctx, conf, flowClient)
+	accountsCadenceValues := convertAddresses(addresses)
+	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.maxAcctKeys), cadence.NewBool(conf.ignoreZeroWeight), cadence.NewBool(conf.ignoreRevoked)}
+	result, err := retryScriptUntilSuccess(ctx, log, currentBlock.Height, script, arguments, flowClient)
+
+	if err != nil {
+		log.Error().Msgf("server is err long running script, reduce accounts in args. (%d addr)", len(accountsCadenceValues))
+		for _, newAddresses := range splitAddr(addresses) {
+			log.Warn().Msgf("rerun script with less addresses (%d addr)", len(newAddresses))
+			runScript(ctx, conf, newAddresses, log, script, flowClient, handler)
+		}
+	} else {
+		handler(result, currentBlock.Height)
+	}
 }
 
 func getBlockHeight(ctx context.Context, conf Config, flowClient *flowclient.Client) (*flow.BlockHeader, error) {
@@ -159,8 +181,11 @@ func retryScriptUntilSuccess(
 	script []byte,
 	arguments []cadence.Value,
 	flowClient *flowclient.Client,
-) (result cadence.Value) {
+) (cadence.Value, error) {
 	var err error
+	var result cadence.Value
+	attempts := 0
+	maxAttemps := 5
 
 	for {
 		time.Sleep(10 * time.Millisecond)
@@ -175,11 +200,24 @@ func retryScriptUntilSuccess(
 		if err == nil {
 			break
 		}
-
+		attempts = attempts + 1
 		log.Error().Msgf("received unknown error, retrying: %s", err.Error())
+		// really slow down when node is ResourceExhausted
+		if strings.Contains(err.Error(), "ResourceExhausted") {
+			log.Info().Msgf("server is exhausted, taking a second to rest. (%d attemps)", attempts)
+			time.Sleep(1 * time.Second)
+		}
+		if strings.Contains(err.Error(), "DeadlineExceeded") {
+			// pass error back to caller
+			break
+		}
+
+		if attempts == maxAttemps {
+			break
+		}
 	}
 
-	return result
+	return result, err
 }
 
 func convertAddresses(addresses []flow.Address) []cadence.Value {
@@ -188,4 +226,20 @@ func convertAddresses(addresses []flow.Address) []cadence.Value {
 		accounts = append(accounts, cadence.Address(address))
 	}
 	return accounts
+}
+
+func splitAddr(addresses []flow.Address) [][]flow.Address {
+	limit := int(len(addresses) / 2)
+	var temp2 []flow.Address
+	var temp []flow.Address
+
+	for i := 0; i < len(addresses); i++ {
+		addr := addresses[i]
+		if i < limit {
+			temp = append(temp, addr)
+		} else {
+			temp2 = append(temp2, addr)
+		}
+	}
+	return [][]flow.Address{temp, temp2}
 }

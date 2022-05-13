@@ -67,10 +67,10 @@ func (d *Database) UpsertPublicKey(publicKey string, accounts []Account) error {
 			return nil
 		} else {
 			// merge in new accounts
-			keyInfo, err := txn.Get([]byte(publicKey))
-			if err != nil {
-				log.Error().Err(err).Msg("Could not get public key data")
-				return err
+			keyInfo, errGet := txn.Get([]byte(publicKey))
+			if errGet != nil {
+				log.Error().Err(errGet).Msg("Could not get public key data")
+				return errGet
 			}
 			return keyInfo.Value(func(val []byte) error {
 				var existingAccounts []Account
@@ -95,7 +95,7 @@ func (d *Database) UpsertPublicKey(publicKey string, accounts []Account) error {
 					}
 				}
 				data, _ := json.Marshal(newAccounts)
-				if err := txn.Set([]byte(publicKey), []byte(data)); err == badger.ErrConflict {
+				if errSet := txn.Set([]byte(publicKey), []byte(data)); errSet == badger.ErrConflict {
 					txn = d.db.NewTransaction(true)
 					_ = txn.Set([]byte(publicKey), []byte(data))
 				}

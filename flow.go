@@ -49,7 +49,7 @@ func (fa *FlowAdapter) GetCurrentBlockHeight() (uint64, error) {
 }
 
 func (fa *FlowAdapter) GetAddressesFromBlockEvents(concurrenClients int, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]flow.Address, uint64, bool) {
-	itemsPerRequest := 240 // access node can only handel 250
+	itemsPerRequest := 245 // access node can only handel 250
 	eventTypes := []string{"flow.AccountKeyAdded", "flow.AccountKeyRemoved"}
 	var addresses []flow.Address
 	restartBulkLoad := true
@@ -73,8 +73,8 @@ func (fa *FlowAdapter) GetAddressesFromBlockEvents(concurrenClients int, startBl
 	return unique(addrs), backOfHeight, restartDataLoader
 }
 
-func ChunkEventRangeQuery(size int, lowBlockHeight, highBlockHeight uint64, eventName string) []client.EventRangeQuery {
-	maxServerBlockRange := float64(size) // less than server's max of 250
+func ChunkEventRangeQuery(itemsPerRequest int, lowBlockHeight, highBlockHeight uint64, eventName string) []client.EventRangeQuery {
+	maxServerBlockRange := float64(itemsPerRequest) // less than server's max of 250
 	var chunks []client.EventRangeQuery
 	totalRange := float64(highBlockHeight - lowBlockHeight)
 	numChunks := math.Ceil(totalRange / maxServerBlockRange)
@@ -116,8 +116,16 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 	restartBulkLoad := false
 	events, err := client.GetEventsForHeightRange(context, query)
 	if err != nil {
-		log.Error().Err(err).Msgf("Could not get events in block range %d", query.EndHeight-query.StartHeight)
-		return addresses, true
+		log.Warn().Err(err).Msgf("retrying get events in block range %d %d", query.StartHeight, query.EndHeight)
+		// break up query into smaller chunks
+		for _, q := range splitQuery(query) {
+			eventsRetry, errRetry := client.GetEventsForHeightRange(context, q)
+			if errRetry != nil {
+				log.Error().Err(errRetry).Msg("retrying get events failed")
+				return addresses, true
+			}
+			events = append(events, eventsRetry...)
+		}
 	}
 	for _, event := range events {
 		for _, evt := range event.Events {
@@ -161,7 +169,7 @@ func (fa *FlowAdapter) GetEventAddresses(maxClients int, queries []client.EventR
 			}()
 
 			for query := range eventRangeChan {
-				log.Debug().Msgf("Query blocks: %d   %d", query.StartHeight, query.EndHeight)
+				log.Debug().Msgf("Query events blocks: %d   %d", query.StartHeight, query.EndHeight)
 				addrs, restart := RunAddressQuery(client, fa.Context, query)
 				if !restart {
 					restartBulkLoad = restart
@@ -182,6 +190,12 @@ func (fa *FlowAdapter) GetEventAddresses(maxClients int, queries []client.EventR
 	close(eventRangeChan)
 
 	return allAddresses, restartBulkLoad
+}
+
+func splitQuery(query client.EventRangeQuery) []client.EventRangeQuery {
+	rangef := float64(query.EndHeight - query.StartHeight)
+	itemsPerRequest := math.Ceil(rangef / 2)
+	return ChunkEventRangeQuery(int(itemsPerRequest), query.StartHeight, query.EndHeight, query.Type)
 }
 
 func unique(addresses []flow.Address) []flow.Address {

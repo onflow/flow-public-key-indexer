@@ -64,7 +64,7 @@ func InitAddressProvider(
 	}
 
 	last := time.Now()
-	log.Info().Msgf("number of addresses %d", &ap.lastAddressIndex)
+	log.Debug().Msgf("number of addresses %d", &ap.lastAddressIndex)
 	searchStep := 0
 	addressExistsAtIndex := func(index uint) (bool, error) {
 		if time.Since(last) < pause {
@@ -100,8 +100,7 @@ func InitAddressProvider(
 	log.Info().
 		Str("lastAddress", ap.indexToAddress(lastAddressIndex).Hex()).
 		Uint("numAccounts", lastAddressIndex).
-		Int("stepsNeeded", searchStep).
-		Msg("Found last address")
+		Int("stepsNeeded", searchStep)
 
 	ap.lastAddress = ap.indexToAddress(lastAddressIndex)
 	ap.lastAddressIndex = lastAddressIndex
