@@ -54,7 +54,11 @@ func (d *Database) UpdatePublicKeys(pkis []PublicKeyIndexer) {
 	for _, pki := range pkis {
 		err := d.UpsertPublicKey(pki.PublicKey, pki.Accounts)
 		if err != nil {
-			log.Error().Err(err).Msgf("could not save public key info %v", pki.PublicKey)
+			log.Warn().Err(err).Msg("save error, retrying public key")
+			errRetry := d.UpsertPublicKey(pki.PublicKey, pki.Accounts)
+			if errRetry != nil {
+				log.Error().Err(err).Msgf("could not save %v", pki.PublicKey)
+			}
 		}
 	}
 }
@@ -103,11 +107,7 @@ func (d *Database) UpsertPublicKey(publicKey string, accounts []Account) error {
 			})
 		}
 	})
-	if err != nil {
-		log.Warn().Err(err).Msgf("Data not saved %s", publicKey)
-		return err
-	}
-	return nil
+	return err
 }
 
 func (d *Database) GetPublicKey(publicKey string, hashAlgo int, signAlgo int, exZero bool, exRevoked bool) (PublicKeyIndexer, error) {

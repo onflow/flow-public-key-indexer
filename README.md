@@ -39,8 +39,8 @@ A observer service for indexing flow Accounts public keys and REST service that 
 `KEYIDX_BLOCKPOLINTERVALSEC` default: 120
 <br>Block Pol Interval Sec: number of seconds to wait before checking current block height to determine to run an incremental data load</br>
 
-`KEYIDX_MAXBLOCKRANGE` default: 1000
-<br>Max Block Range: number of blocks that will trigger a bulk load if services falls behind. If this happens try increasing `Batch Size` parameter to a safe amount and not to trigger max computation error when cadence script is executed.</br>
+`KEYIDX_MAXBLOCKRANGE` default: 600
+<br>Max Block Range: number of blocks that will trigger a bulk load if services falls behind. If this happens try increasing `Batch Size` parameter to a safe amount and not to trigger max computation error when cadence script is executed. Also, the server can only query 600 blocks</br>
 
 ## How to Run
 Since this is a golang service there are many ways to run it. Below are two ways to run this service
@@ -53,7 +53,7 @@ Run the docker and map the port <br>
 ```docker run -it -p 8888:8888 --env key-indexer```
 ## REST service
 `Endpoints`
-* \<root\>/keys/{public key}
+* \<root\>/key/{public key}
 <p>note: public key is in base64 format
 serves up json object</p>
 
@@ -78,7 +78,7 @@ account object:
 
 `hashingAlgo` values: 0: unknown, 1: "SHA2_256", 2: "SHA2_384", 3: "SHA3_256", 4: "SHA3_384", 5: "KMAC128", 6: "Keccak_256"
 
-* \<root\>/keys-status
+* \<root\>/status
 <p>note: this endpoint gives ability to see if the server is active and updating</p>
 
 ```

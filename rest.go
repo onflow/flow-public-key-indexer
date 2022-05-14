@@ -26,7 +26,7 @@ func NewRest(DB Database, fa FlowAdapter, p Params) *Rest {
 func (rest *Rest) Start() {
 	// init router
 	r := mux.NewRouter()
-	r.HandleFunc("/keys/{id}", rest.getKey).Methods("GET")
+	r.HandleFunc("/key/{id}", rest.getKey).Methods("GET")
 	r.HandleFunc("/status", rest.getStatus).Methods("GET")
 	// handleRequests()
 	log.Info().Msgf("Serving on PORT %s", rest.config.Port)

@@ -19,9 +19,9 @@ type Params struct {
 	IgnoreZeroWeight    bool   `default:"true"`
 	IgnoreRevoked       bool   `default:"true"`
 	ConcurrenClients    int    `default:"2"`
-	WaitNumBlocks       int    `default:"500"`
-	BlockPolIntervalSec int    `default:"120"`
-	MaxBlockRange       int    `default:"1000"`
+	WaitNumBlocks       int    `default:"300"`
+	BlockPolIntervalSec int    `default:"180"`
+	MaxBlockRange       int    `default:"600"`
 }
 type App struct {
 	DB         *Database
@@ -101,7 +101,6 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 
 func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange int, waitNumBlocks int) {
 	start := time.Now()
-
 	loadingBlkHeight, _ := a.DB.GetLoadingBlockHeight()
 	updatedToBlock, _ := a.DB.GetUpdatedBlockHeight()
 	currentBlock, err := a.flowClient.GetCurrentBlockHeight()

@@ -62,7 +62,7 @@ var DefaultConfig = Config{
 	FlowAccessNodeURL: "access.mainnet.nodes.onflow.org:9000",
 	ConcurrentClients: 2, // should be a good number to not produce too much traffic
 	Pause:             0,
-	ChainID:           "chain-mainnet",
+	ChainID:           "flow-mainnet",
 }
 
 func GetAllAddresses(
@@ -145,9 +145,9 @@ func runScript(
 	result, err := retryScriptUntilSuccess(ctx, log, currentBlock.Height, script, arguments, flowClient)
 
 	if err != nil {
-		log.Error().Msgf("server is err long running script, reduce accounts in args. (%d addr)", len(accountsCadenceValues))
+		log.Error().Msgf("long running script error, reducing num accounts. (%d addr)", len(accountsCadenceValues))
 		for _, newAddresses := range splitAddr(addresses) {
-			log.Warn().Msgf("rerun script with less addresses (%d addr)", len(newAddresses))
+			log.Warn().Msgf("rerunning script with fewer addresses (%d addr)", len(newAddresses))
 			runScript(ctx, conf, newAddresses, log, script, flowClient, handler)
 		}
 	} else {
@@ -201,17 +201,18 @@ func retryScriptUntilSuccess(
 			break
 		}
 		attempts = attempts + 1
-		log.Error().Msgf("received unknown error, retrying: %s", err.Error())
 		// really slow down when node is ResourceExhausted
 		if strings.Contains(err.Error(), "ResourceExhausted") {
-			log.Info().Msgf("server is exhausted, taking a second to rest. (%d attemps)", attempts)
+			log.Info().Msgf("server exhausted, taking a second rest. (%d req)", attempts)
 			time.Sleep(1 * time.Second)
+			continue
 		}
 		if strings.Contains(err.Error(), "DeadlineExceeded") {
 			// pass error back to caller
 			break
 		}
 
+		log.Error().Err(err).Msgf("unknown error, retrying: (%d attempt)", attempts)
 		if attempts == maxAttemps {
 			break
 		}
