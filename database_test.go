@@ -99,7 +99,6 @@ func TestAddAnotherAccount(t *testing.T) {
 }
 
 func checkAccounts(t *testing.T, oAccounts, tAccounts []Account) {
-
 	if len(oAccounts) != len(tAccounts) {
 		t.Errorf("account len not the same o: %d t: %d", len(oAccounts), len(tAccounts))
 	}
@@ -132,6 +131,9 @@ func checkPublicKey(t *testing.T, err error, oPublicKey, tPublicKey PublicKeyInd
 	}
 	if oPublicKey.PublicKey != tPublicKey.PublicKey {
 		t.Error("error: public key values do not match")
+	}
+	if len(oPublicKey.Accounts) != len(tPublicKey.Accounts) {
+		t.Errorf("account len not the same o: %d t: %d", len(oPublicKey.Accounts), len(tPublicKey.Accounts))
 	}
 	checkAccounts(t, oPublicKey.Accounts, tPublicKey.Accounts)
 

@@ -37,6 +37,7 @@ type PublicKeyStatus struct {
 
 const UpdatedToBlock = "updatedToBlock"
 const LoadingFromBlock = "loadingFromBlock"
+const TotalPublicKeyCount = "totalPublicKeyCount"
 
 func NewDatabase(dbPath string, silence bool) *Database {
 	d := Database{}
@@ -53,16 +54,78 @@ func NewDatabase(dbPath string, silence bool) *Database {
 }
 
 func (d *Database) UpdatePublicKeys(pkis []PublicKeyIndexer) {
+	maxRetries := 5
 	for _, pki := range pkis {
-		err := d.UpsertPublicKey(pki.PublicKey, pki.Accounts)
-		if err != nil {
-			log.Warn().Err(err).Msg("save error, retrying public key")
-			errRetry := d.UpsertPublicKey(pki.PublicKey, pki.Accounts)
-			if errRetry != nil {
-				log.Error().Err(err).Msgf("could not save %v", pki.PublicKey)
+		retry := 0
+		for {
+			err := UpsertPublicKeyInfo(d.db, pki.PublicKey, pki.Accounts)
+			if err == nil {
+				break
 			}
+			if retry > maxRetries {
+				log.Error().Err(err).Msgf("exhausted retries, %v", pki.PublicKey)
+				break
+			}
+			log.Warn().Err(err).Msgf("retrying saving public key, %v", pki.PublicKey)
+			retry = retry + 1
 		}
 	}
+}
+
+func UpsertPublicKeyInfo(db *badger.DB, publicKey string, accounts []Account) error {
+	var keyInfo PublicKeyIndexer
+	err := db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(publicKey))
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			var accounts []Account
+			json.Unmarshal(val, &accounts)
+			keyInfo = PublicKeyIndexer{PublicKey: publicKey, Accounts: accounts}
+			return nil
+		})
+	})
+	var newKeyInfo PublicKeyIndexer
+	if err == badger.ErrKeyNotFound {
+		newKeyInfo = PublicKeyIndexer{
+			PublicKey: publicKey,
+			Accounts:  accounts,
+		}
+	} else {
+		newKeyInfo = MergePublicKeyData(keyInfo, accounts)
+	}
+
+	return SavePublicKey(db, newKeyInfo)
+}
+
+func MergePublicKeyData(pki PublicKeyIndexer, accounts []Account) PublicKeyIndexer {
+	existingAccounts := pki.Accounts
+	newAccounts := pki.Accounts
+	for _, a := range accounts {
+		found := false
+		for index, x := range existingAccounts {
+			if x.Account == a.Account && x.KeyId == a.KeyId {
+				found = true
+				if a.BlockHeight > x.BlockHeight {
+					newAccounts[index] = a
+				}
+				break
+			}
+		}
+		if !found {
+			newAccounts = append(newAccounts, a)
+		}
+	}
+	pki.Accounts = newAccounts
+	return pki
+}
+
+func SavePublicKey(db *badger.DB, pki PublicKeyIndexer) error {
+	return db.Update(func(txn *badger.Txn) error {
+		data, _ := json.Marshal(pki.Accounts)
+		return txn.Set([]byte(pki.PublicKey), []byte(data))
+	})
 }
 
 func (d *Database) UpsertPublicKey(publicKey string, accounts []Account) error {
@@ -103,7 +166,7 @@ func (d *Database) UpsertPublicKey(publicKey string, accounts []Account) error {
 				data, _ := json.Marshal(newAccounts)
 				if errSet := txn.Set([]byte(publicKey), []byte(data)); errSet == badger.ErrConflict {
 					txn = d.db.NewTransaction(true)
-					_ = txn.Set([]byte(publicKey), []byte(data))
+					return txn.Set([]byte(publicKey), []byte(data))
 				}
 				return nil
 			})
@@ -177,6 +240,10 @@ func (d *Database) GetLoadingBlockHeight() (uint64, error) {
 	return GetBlockInfo(d.db, LoadingFromBlock)
 }
 
+func (d *Database) GetTotalKeyCount() (uint64, error) {
+	return GetBlockInfo(d.db, TotalPublicKeyCount)
+}
+
 func GetBlockInfo(db *badger.DB, name string) (uint64, error) {
 	var blockHeight uint64 = 0
 	err := db.View(func(txn *badger.Txn) error {
@@ -218,8 +285,7 @@ func (d *Database) ReadValues() error {
 	})
 }
 
-func (d *Database) Stats() PublicKeyStatus {
-	var stats PublicKeyStatus
+func (d *Database) UpdateTotalPublicKeyCount() {
 	itemCount := 0
 	d.db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
@@ -231,6 +297,12 @@ func (d *Database) Stats() PublicKeyStatus {
 		}
 		return nil
 	})
+	updateBlockInfo(d.db, uint64(itemCount), TotalPublicKeyCount)
+}
+
+func (d *Database) Stats() PublicKeyStatus {
+	var stats PublicKeyStatus
+	itemCount, errCnt := d.GetTotalKeyCount()
 	value, err := d.GetUpdatedBlockHeight()
 	blk, errLoading := d.GetLoadingBlockHeight()
 	stats.UpdatedToBlock = int(value)
@@ -242,6 +314,10 @@ func (d *Database) Stats() PublicKeyStatus {
 	if errLoading != nil {
 		stats.PendingToBlock = -1
 	}
-	stats.Count = itemCount
+	stats.Count = int(itemCount)
+	if errCnt != nil {
+		stats.Count = -1
+	}
+
 	return stats
 }

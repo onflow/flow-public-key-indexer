@@ -46,23 +46,21 @@ type Config struct {
 	// BachSize is the number of addresses for which to run each script
 	BatchSize int
 	// 0 is treated as the latest block height.
-	AtBlockHeight     uint64
-	FlowAccessNodeURL string
-	ConcurrentClients int
-	Pause             time.Duration
-	ChainID           flow.ChainID
-	maxAcctKeys       int
-	ignoreZeroWeight  bool
-	ignoreRevoked     bool
+	AtBlockHeight      uint64
+	FlowAccessNodeURLs []string
+	Pause              time.Duration
+	ChainID            flow.ChainID
+	maxAcctKeys        int
+	ignoreZeroWeight   bool
+	ignoreRevoked      bool
 }
 
 var DefaultConfig = Config{
-	BatchSize:         100,
-	AtBlockHeight:     0,
-	FlowAccessNodeURL: "access.mainnet.nodes.onflow.org:9000",
-	ConcurrentClients: 2, // should be a good number to not produce too much traffic
-	Pause:             0,
-	ChainID:           "flow-mainnet",
+	BatchSize:          100,
+	AtBlockHeight:      0,
+	FlowAccessNodeURLs: []string{"access.mainnet.nodes.onflow.org:9000"},
+	Pause:              0,
+	ChainID:            "flow-mainnet",
 }
 
 func GetAllAddresses(
@@ -71,7 +69,7 @@ func GetAllAddresses(
 	conf Config,
 	addressChan chan []flow.Address,
 ) (height uint64, err error) {
-	flowClient := getFlowClient(conf.FlowAccessNodeURL)
+	flowClient := getFlowClient(conf.FlowAccessNodeURLs[0])
 
 	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
 	if err != nil {
@@ -96,18 +94,20 @@ func RunAddressCadenceScript(
 	addressChan chan []flow.Address,
 ) (height uint64, err error) {
 	code := []byte(script)
-
-	flowClient := getFlowClient(conf.FlowAccessNodeURL)
+	flowUrl := conf.FlowAccessNodeURLs[0]
+	flowClient := getFlowClient(flowUrl)
 
 	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
 	if err != nil {
 		return 0, err
 	}
 
-	for i := 0; i < conf.ConcurrentClients; i++ {
+	for i := 0; i < len(conf.FlowAccessNodeURLs); i++ {
+		flowUrl := conf.FlowAccessNodeURLs[i]
+		log.Debug().Msgf("using flow url %v", flowUrl)
 		go func() {
 			// Each worker has a separate Flow client
-			client := getFlowClient(conf.FlowAccessNodeURL)
+			client := getFlowClient(flowUrl)
 			defer func() {
 				err = client.Close()
 				if err != nil {

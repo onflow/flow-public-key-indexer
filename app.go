@@ -11,19 +11,22 @@ import (
 type Params struct {
 	LogLevel            string `default:"info"`
 	Port                string `default:"8888"`
-	FlowUrl             string `default:"access.mainnet.nodes.onflow.org:9000"`
-	DbPath              string `default:"./db"`
-	ChainId             string `default:"flow-mainnet"`
-	MaxAcctKeys         int    `default:"1000"`
-	BatchSize           int    `default:"100"`
-	IgnoreZeroWeight    bool   `default:"true"`
-	IgnoreRevoked       bool   `default:"true"`
-	ConcurrenClients    int    `default:"2"`
-	WaitNumBlocks       int    `default:"200"`
-	BlockPolIntervalSec int    `default:"120"`
-	MaxBlockRange       int    `default:"600"`
-	FetchSlowDownMs     int    `default:"100"`
-	SilenceBaderdb      bool   `default:"true"`
+	FlowUrl1            string `default:"access.mainnet.nodes.onflow.org:9000"`
+	FlowUrl2            string
+	FlowUrl3            string
+	FlowUrl4            string
+	AllFlowUrls         []string `ignored:"true"`
+	DbPath              string   `default:"./db"`
+	ChainId             string   `default:"flow-mainnet"`
+	MaxAcctKeys         int      `default:"1000"`
+	BatchSize           int      `default:"100"`
+	IgnoreZeroWeight    bool     `default:"true"`
+	IgnoreRevoked       bool     `default:"true"`
+	WaitNumBlocks       int      `default:"200"`
+	BlockPolIntervalSec int      `default:"180"`
+	MaxBlockRange       int      `default:"600"`
+	FetchSlowDownMs     int      `default:"50"`
+	SilenceBaderdb      bool     `default:"true"`
 }
 type App struct {
 	DB         *Database
@@ -34,9 +37,10 @@ type App struct {
 }
 
 func (a *App) Initialize(params Params) {
+	params.AllFlowUrls = setAllFlowUrls(params)
 	a.p = params
 	a.DB = NewDatabase(params.DbPath, params.SilenceBaderdb)
-	a.flowClient = NewFlowClient(strings.TrimSpace(a.p.FlowUrl))
+	a.flowClient = NewFlowClient(strings.TrimSpace(a.p.FlowUrl1))
 	a.dataLoader = NewDataLoader(*a.DB, *a.flowClient, params)
 	a.rest = NewRest(*a.DB, *a.flowClient, params)
 }
@@ -130,8 +134,28 @@ func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange in
 	addressCount, restart := a.dataLoader.RunIncAddressesLoader(addressChan, isLoading, startLoadingFrom)
 	duration := time.Since(start)
 	log.Info().Msgf("Inc Load, %f sec, (%d blk) curr: %d (%d addr)", duration.Seconds(), loadingBlockRange, currentBlock, addressCount)
+	if addressCount > 0 {
+		a.DB.UpdateTotalPublicKeyCount()
+	}
 	if restart && !isLoading {
 		log.Info().Msg("Force restart bulk load")
 		go func() { a.bulkLoad(addressChan) }()
 	}
+}
+
+func setAllFlowUrls(params Params) []string {
+	var all []string
+	all = processUrl(params.FlowUrl1, all)
+	all = processUrl(params.FlowUrl2, all)
+	all = processUrl(params.FlowUrl3, all)
+	all = processUrl(params.FlowUrl4, all)
+	return all
+}
+
+func processUrl(url string, collection []string) []string {
+	newUrl := strings.TrimSpace(url)
+	if newUrl != "" {
+		collection = append(collection, newUrl)
+	}
+	return collection
 }

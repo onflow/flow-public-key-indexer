@@ -9,10 +9,19 @@ A observer service for indexing flow Accounts public keys and REST service that 
 `KEYIDX_PORT` default: "8888"
 <br>Port: The port the REST service is hosted on</br>
 
-`KEYIDX_FLOWURL` default: "access.mainnet.nodes.onflow.org:9000"
-<br>Flow Url: Access node endpoint blockchain data is pulled from, needs to match up with Chain Id</br>
+`KEYIDX_FLOWURL1` default: "access.mainnet.nodes.onflow.org:9000"
+<br>Flow Url: Access node endpoint blockchain data is pulled from, needs to match up with Chain Id. Up to 4 access nodes can be provided, only one is required. The access nodes are cycled through each request to get public key data.</br>
 
-`KEYIDX_DB_PATH` default: "./db"
+`KEYIDX_FLOWURL2` default: none
+<br>Flow Url: Access node endpoint</br>
+
+`KEYIDX_FLOWURL3` default: none
+<br>Flow Url: Access node endpoint</br>
+
+`KEYIDX_FLOWURL4` default: none
+<br>Flow Url: Access node endpoint</br>
+
+`KEYIDX_DBPATH` default: "./db"
 <br>db path: badger db directory where all db files live </br>
 
 `KEYIDX_CHAINID` default: "flow-mainnet"
@@ -29,9 +38,6 @@ A observer service for indexing flow Accounts public keys and REST service that 
 
 `KEYIDX_IGNOREREVOKED` default: true
 <br>Ignroe Revoked: tells the cadenc escript to ignore public keys that have been revoked. These keys will not be indexed</br>
-
-`KEYIDX_CONCURRENCLIENTS` default: 2
-<br>Concurrent Clients: number of clients to spin up when bulk loading or incremental data loading</br>
 
 `KEYIDX_WAITNUMBLOCKS` default: 500
 <br>Wait Num Blocks: number of blocks to wait before running an incremental data load</br>

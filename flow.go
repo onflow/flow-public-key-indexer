@@ -48,7 +48,7 @@ func (fa *FlowAdapter) GetCurrentBlockHeight() (uint64, error) {
 	return block.Height, nil
 }
 
-func (fa *FlowAdapter) GetAddressesFromBlockEvents(concurrenClients int, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]flow.Address, uint64, bool) {
+func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]flow.Address, uint64, bool) {
 	itemsPerRequest := 245 // access node can only handel 250
 	eventTypes := []string{"flow.AccountKeyAdded", "flow.AccountKeyRemoved"}
 	var addresses []flow.Address
@@ -69,7 +69,7 @@ func (fa *FlowAdapter) GetAddressesFromBlockEvents(concurrenClients int, startBl
 		chunksEvents = append(chunksEvents, events...)
 	}
 
-	addrs, restartDataLoader := fa.GetEventAddresses(concurrenClients, chunksEvents)
+	addrs, restartDataLoader := fa.GetEventAddresses(flowUrls, chunksEvents)
 	return unique(addrs), backOfHeight, restartDataLoader
 }
 
@@ -141,7 +141,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 	return addresses, restartBulkLoad
 }
 
-func (fa *FlowAdapter) GetEventAddresses(maxClients int, queries []client.EventRangeQuery) ([]flow.Address, bool) {
+func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.EventRangeQuery) ([]flow.Address, bool) {
 	var allAddresses []flow.Address
 	restartBulkLoad := false
 	var wg sync.WaitGroup
@@ -155,10 +155,11 @@ func (fa *FlowAdapter) GetEventAddresses(maxClients int, queries []client.EventR
 	}()
 
 	wg.Add(len(queries))
-	for i := 0; i < maxClients; i++ {
+	for i := 0; i < len(flowUrls); i++ {
+		flowUrl := flowUrls[i]
 		go func() {
 			// Each worker has a separate Flow client
-			client := getFlowClient(fa.URL)
+			client := getFlowClient(flowUrl)
 			defer func() {
 				err := client.Close()
 				if err != nil {

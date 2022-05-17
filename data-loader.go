@@ -93,12 +93,11 @@ func NewDataLoader(DB Database, fa FlowAdapter, p Params) *DataLoader {
 
 func (s *DataLoader) SetupAddressLoader(addressChan chan []flow.Address) (uint64, error) {
 	config := DefaultConfig
-	config.FlowAccessNodeURL = s.config.FlowUrl
+	config.FlowAccessNodeURLs = s.config.AllFlowUrls
 	config.ChainID = flow.ChainID(s.config.ChainId)
 	config.BatchSize = s.config.BatchSize
 	config.ignoreZeroWeight = s.config.IgnoreZeroWeight
 	config.ignoreRevoked = s.config.IgnoreRevoked
-	config.ConcurrentClients = s.config.ConcurrenClients
 	config.maxAcctKeys = s.config.MaxAcctKeys
 
 	blockHeight, err := RunAddressCadenceScript(
@@ -114,12 +113,11 @@ func (s *DataLoader) SetupAddressLoader(addressChan chan []flow.Address) (uint64
 
 func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) error {
 	config := DefaultConfig
-	config.FlowAccessNodeURL = s.config.FlowUrl
+	config.FlowAccessNodeURLs = s.config.AllFlowUrls
 	config.ChainID = flow.ChainID(s.config.ChainId)
 	config.BatchSize = s.config.BatchSize
 	config.ignoreZeroWeight = s.config.IgnoreZeroWeight
 	config.ignoreRevoked = s.config.IgnoreRevoked
-	config.ConcurrentClients = s.config.ConcurrenClients
 	config.maxAcctKeys = s.config.MaxAcctKeys
 	config.Pause = time.Duration(s.config.FetchSlowDownMs * int(time.Millisecond))
 
@@ -130,7 +128,7 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) erro
 }
 
 func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLoading bool, blockHeight uint64) (int, bool) {
-	addresses, currBlockHeight, restart := s.fa.GetAddressesFromBlockEvents(s.config.ConcurrenClients, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
+	addresses, currBlockHeight, restart := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
 	s.DB.updateLoadingBlockHeight(currBlockHeight)
 	addressChan <- addresses
 	return len(addresses), restart

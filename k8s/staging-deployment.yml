@@ -1,0 +1,136 @@
+## Deployment
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+
+  # This is the full name of your deployment. It must be unique
+  name: flow-public-key-indexer-v1
+  namespace: flow
+
+  # Best practice labels:
+  #   app: <app-name> (the non-unique version of metadata.name)
+  #   kind: [web|worker]
+  #   env: [staging|production|canary|test|dev]
+  #   owner: who to ask about this service
+  #   version: the major version of this service (v1/v2/v1beta1)
+  labels:
+    app: flow-public-key-indexer
+    kind: web
+    env: staging
+    owner: Tom
+    version: v1
+
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: flow-public-key-indexer
+      env: staging
+      version: v1
+
+  # Deployment strategy dictates how an update will be rolled out across the deployment
+  # K8s will try to roll up to the maxSurge before taking pods offline
+  # If availability is a strong concern, increase surge and decrease unavailable
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 50%
+      maxUnavailable: 50%
+
+  template:
+    metadata:
+
+      annotations:
+        # Set to "false" to opt out of prometheus scrapes
+        # Prometheus still needs a port called "metrics" (below) to scrape properly
+        prometheus.io/scrape: "true"
+
+        ###
+        #  TODO
+        #
+        #. NOTE!  This deployment isn't ready to serve metrics yet, and will require
+        #         an nginx Prometheus exporter.
+        ###
+
+        # Set the path to the API endpoint that exposes prometheus metrics, or leave blank for `/metrics`
+        # prometheus.io/path: "/metrics"
+
+      labels:
+        app: flow-public-key-indexer
+        env: staging
+        owner: Tom
+        version: v1
+        kind: web
+
+    spec:
+      # Affinity keeps your replicas from all being scheduled to
+      # nodes in the same zone. Prevents zonal failures from taking
+      # down your entire service
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            podAffinityTerm:
+              topologyKey: failure-domain.beta.kubernetes.io/zone
+              labelSelector:
+                matchLabels:
+                  app: flow-public-key-indexer
+                  env: staging
+                  version: v1
+
+      containers:
+        - name: flow-public-key-indexer
+          image: gcr.io/dl-flow/key-indexer
+
+          # Ports exposed can be named so other resources can reference
+          # them by name and not have to hard code numbers
+          ports:
+            - name: web
+              containerPort: 8080
+
+          # Environment variables
+          env:
+            - name: KEYIDX_LOGLEVEL
+              value: "info"
+            - name: KEYIDX_PORT
+              value: "8080"
+            - name: KEYIDX_FLOWURL1
+              value: "access-004.mainnet17.nodes.onflow.org:9000"
+            - name: KEYIDX_FLOWURL2
+              value: "access-003.mainnet17.nodes.onflow.org:9000"
+            - name: KEYIDX_FLOWURL3
+              value: "access-002.mainnet17.nodes.onflow.org:9000"
+            - name: KEYIDX_FLOWURL4
+              value: "access-001.mainnet17.nodes.onflow.org:9000"
+            - name: KEYIDX_DBPATH
+              value: "./db"
+            - name: KEYIDX_CHAINID
+              value: "flow-mainnet"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /var/secrets/google/key.json
+
+          # Readiness and Liveness probes
+          readinessProbe:
+            initialDelaySeconds: 1
+            periodSeconds: 10
+            httpGet:
+              path: /ping
+              port: web
+
+          # Resource requests and constraints
+          resources:
+            requests:
+              cpu: "200m" # 0.1 CPUs, or 10% CPU
+              memory: "512Mi"
+            limits:
+              cpu: "800m"
+              memory: "1024Mi"
+          volumeMounts:
+            - name: google-cloud-key
+              mountPath: /var/secrets/google
+
+      volumes:
+        - name: google-cloud-key
+          secret:
+            secretName: datastore-key
