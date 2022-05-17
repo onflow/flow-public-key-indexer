@@ -14,14 +14,16 @@ type Params struct {
 	FlowUrl             string `default:"access.mainnet.nodes.onflow.org:9000"`
 	DbPath              string `default:"./db"`
 	ChainId             string `default:"flow-mainnet"`
-	MaxAcctKeys         int    `default:"500"`
-	BatchSize           int    `default:"500"`
+	MaxAcctKeys         int    `default:"1000"`
+	BatchSize           int    `default:"100"`
 	IgnoreZeroWeight    bool   `default:"true"`
 	IgnoreRevoked       bool   `default:"true"`
 	ConcurrenClients    int    `default:"2"`
-	WaitNumBlocks       int    `default:"300"`
-	BlockPolIntervalSec int    `default:"180"`
+	WaitNumBlocks       int    `default:"200"`
+	BlockPolIntervalSec int    `default:"120"`
 	MaxBlockRange       int    `default:"600"`
+	FetchSlowDownMs     int    `default:"100"`
+	SilenceBaderdb      bool   `default:"true"`
 }
 type App struct {
 	DB         *Database
@@ -33,7 +35,7 @@ type App struct {
 
 func (a *App) Initialize(params Params) {
 	a.p = params
-	a.DB = NewDatabase(params.DbPath)
+	a.DB = NewDatabase(params.DbPath, params.SilenceBaderdb)
 	a.flowClient = NewFlowClient(strings.TrimSpace(a.p.FlowUrl))
 	a.dataLoader = NewDataLoader(*a.DB, *a.flowClient, params)
 	a.rest = NewRest(*a.DB, *a.flowClient, params)
@@ -82,13 +84,11 @@ func (a *App) loadPublicKeyData() {
 }
 
 func (a *App) bulkLoad(addressChan chan []flow.Address) {
-	// clear to get ready for bulk load
-	a.DB.ClearAllData()
 	start := time.Now()
 	log.Info().Msg("Start Bulk Key Load")
 	currentBlock, _ := a.flowClient.GetCurrentBlockHeight()
 	// sets starting block height for incremental loader
-	a.DB.updateLoadingBlockHeight(currentBlock - uint64(200))
+	a.DB.updateLoadingBlockHeight(currentBlock)
 	errLoad := a.dataLoader.RunAllAddressesLoader(addressChan)
 	if errLoad != nil {
 		log.Fatal().Err(errLoad).Msg("could not bulk load public keys")
@@ -115,21 +115,19 @@ func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange in
 	isLoadingOutOfRange := loadingBlockRange >= maxBlockRange
 
 	if isLoadingOutOfRange {
-		if isLoading {
-			log.Fatal().Msg("loading will not catch up, adjust run parameters to speed up load time")
-			return
-		}
-		log.Warn().Msg("incremental loading will not catch up, starting bulk loading, if this happens again adjust running parameters")
-		go func() { a.bulkLoad(addressChan) }()
+		log.Debug().Msgf("curr: %d ldg blk: %d diff: %d max: %d", currentBlock, loadingBlkHeight, loadingBlockRange, maxBlockRange)
+		log.Fatal().Msg("loading will not catch up, adjust run parameters to speed up load time")
 		return
 	}
 
-	log.Debug().Msgf("check inc: (%t) %d (%d blks)", loadingBlockRange >= waitNumBlocks, currentBlock, loadingBlockRange)
+	log.Debug().Msgf("check inc: (%t) (curr: %d) (%d blks)", loadingBlockRange >= waitNumBlocks, currentBlock, loadingBlockRange)
 	if loadingBlockRange <= waitNumBlocks {
 		// need to wait for more blocks
 		return
 	}
-	addressCount, restart := a.dataLoader.RunIncAddressesLoader(addressChan, isLoading, loadingBlkHeight)
+	// start loading from next block
+	startLoadingFrom := loadingBlkHeight + 1
+	addressCount, restart := a.dataLoader.RunIncAddressesLoader(addressChan, isLoading, startLoadingFrom)
 	duration := time.Since(start)
 	log.Info().Msgf("Inc Load, %f sec, (%d blk) curr: %d (%d addr)", duration.Seconds(), loadingBlockRange, currentBlock, addressCount)
 	if restart && !isLoading {

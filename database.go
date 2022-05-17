@@ -38,15 +38,17 @@ type PublicKeyStatus struct {
 const UpdatedToBlock = "updatedToBlock"
 const LoadingFromBlock = "loadingFromBlock"
 
-func NewDatabase(dbPath string) *Database {
+func NewDatabase(dbPath string, silence bool) *Database {
 	d := Database{}
-	db, err := badger.Open(badger.DefaultOptions(dbPath))
+	c := badger.DefaultOptions(dbPath)
+	if silence {
+		c.Logger = nil // ignore logs from badgerdb
+	}
+	db, err := badger.Open(c)
 	if err != nil {
 		log.Error().Msg("Badger db could not be opened")
 	}
 	d.db = db
-
-	//defer db.Close()
 	return &d
 }
 

@@ -22,6 +22,7 @@ import (
 	"context"
 	_ "embed"
 	"math/big"
+	"time"
 
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
@@ -120,6 +121,7 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) erro
 	config.ignoreRevoked = s.config.IgnoreRevoked
 	config.ConcurrentClients = s.config.ConcurrenClients
 	config.maxAcctKeys = s.config.MaxAcctKeys
+	config.Pause = time.Duration(s.config.FetchSlowDownMs * int(time.Millisecond))
 
 	height, err := GetAllAddresses(context.Background(), log.Logger, config, addressChan)
 	// save height for next load time

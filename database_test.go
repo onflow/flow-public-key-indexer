@@ -64,7 +64,7 @@ func TestAddAnotherAccount(t *testing.T) {
 	}
 
 	// test storing key and retreiving it
-	db := NewDatabase("./tests")
+	db := NewDatabase("./tests", false)
 
 	pkis := []PublicKeyIndexer{pki}
 	pkis2 := []PublicKeyIndexer{pki2}

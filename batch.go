@@ -142,7 +142,7 @@ func runScript(
 	currentBlock, _ := getBlockHeight(ctx, conf, flowClient)
 	accountsCadenceValues := convertAddresses(addresses)
 	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.maxAcctKeys), cadence.NewBool(conf.ignoreZeroWeight), cadence.NewBool(conf.ignoreRevoked)}
-	result, err := retryScriptUntilSuccess(ctx, log, currentBlock.Height, script, arguments, flowClient)
+	result, err := retryScriptUntilSuccess(ctx, log, currentBlock.Height, script, arguments, flowClient, conf.Pause)
 
 	if err != nil {
 		log.Error().Msgf("long running script error, reducing num accounts. (%d addr)", len(accountsCadenceValues))
@@ -181,14 +181,19 @@ func retryScriptUntilSuccess(
 	script []byte,
 	arguments []cadence.Value,
 	flowClient *flowclient.Client,
+	pause time.Duration,
 ) (cadence.Value, error) {
 	var err error
 	var result cadence.Value
 	attempts := 0
 	maxAttemps := 5
+	last := time.Now()
 
 	for {
-		time.Sleep(10 * time.Millisecond)
+		if time.Since(last) < pause {
+			time.Sleep(pause)
+		}
+		last = time.Now()
 
 		result, err = flowClient.ExecuteScriptAtBlockHeight(
 			ctx,
@@ -204,7 +209,7 @@ func retryScriptUntilSuccess(
 		// really slow down when node is ResourceExhausted
 		if strings.Contains(err.Error(), "ResourceExhausted") {
 			log.Info().Msgf("server exhausted, taking a second rest. (%d req)", attempts)
-			time.Sleep(1 * time.Second)
+			time.Sleep(2 * pause)
 			continue
 		}
 		if strings.Contains(err.Error(), "DeadlineExceeded") {
