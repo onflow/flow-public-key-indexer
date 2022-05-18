@@ -16,3 +16,4 @@
 /db/*
 /tests/*
 .env
+.DS_Store
