@@ -121,9 +121,10 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) erro
 	config.maxAcctKeys = s.config.MaxAcctKeys
 	config.Pause = time.Duration(s.config.FetchSlowDownMs * int(time.Millisecond))
 
+	s.DB.updateUpdatedBlockHeight(0) // indicates bulk loading
 	height, err := GetAllAddresses(context.Background(), log.Logger, config, addressChan)
 	// save height for next load time
-	s.DB.updateBlockHeight(height)
+	s.DB.updateUpdatedBlockHeight(height)
 	return err
 }
 

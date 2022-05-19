@@ -216,7 +216,7 @@ func (d *Database) GetPublicKey(publicKey string, hashAlgo int, signAlgo int, ex
 	return keyInfo, err
 }
 
-func (d *Database) updateBlockHeight(value uint64) error {
+func (d *Database) updateUpdatedBlockHeight(value uint64) error {
 	return updateBlockInfo(d.db, value, UpdatedToBlock)
 }
 

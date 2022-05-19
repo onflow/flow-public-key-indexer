@@ -98,8 +98,6 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 	if errLoad != nil {
 		log.Fatal().Err(errLoad).Msg("could not bulk load public keys")
 	}
-	// indicates bulk load has finished
-	a.DB.updateBlockHeight(currentBlock)
 	duration := time.Since(start)
 	log.Info().Msgf("End Bulk Load, duration %f min", duration.Minutes())
 }
