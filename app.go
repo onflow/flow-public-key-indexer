@@ -61,9 +61,10 @@ func (a *App) loadPublicKeyData() {
 	currentBlock, _ := a.flowClient.GetCurrentBlockHeight()
 	a.DB.updateLoadingBlockHeight(currentBlock)
 	updatedBlkHeight, _ := a.DB.GetUpdatedBlockHeight()
+	isTooFarBehind := currentBlock-updatedBlkHeight > uint64(a.p.MaxBlockRange)
 
 	// if restarted during initial loading, restart bulk load
-	if updatedBlkHeight == 0 {
+	if updatedBlkHeight == 0 || isTooFarBehind {
 		go func() { a.bulkLoad(addressChan) }()
 	}
 
@@ -135,7 +136,7 @@ func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange in
 	duration := time.Since(start)
 	log.Info().Msgf("Inc Load, %f sec, (%d blk) curr: %d (%d addr)", duration.Seconds(), loadingBlockRange, currentBlock, addressCount)
 	if addressCount > 0 {
-		a.DB.UpdateTotalPublicKeyCount()
+		go func() { a.DB.UpdateTotalPublicKeyCount() }()
 	}
 	if restart && !isLoading {
 		log.Info().Msg("Force restart bulk load")
