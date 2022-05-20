@@ -23,45 +23,34 @@ pub fun main(addresses: [Address], keyCap: Int, ignoreZeroWeight: Bool, ignoreRe
     for address in addresses {
         let account = getAccount(address)
 
-        let acctKeys: {Int: _AccountKey} = {}
+        let keys: {Int: AnyStruct} = {}
 
         var keyIndex: Int = 0
         var didNotFindKey: Bool = false
 
         while(!didNotFindKey) {
-            let currKey = account.keys.get(keyIndex: keyIndex)
-            if let _currKey = currKey {
-                acctKeys[keyIndex] = _AccountKey(acctKey: _currKey)
-            } else {
-                didNotFindKey = true
-            }
+          let currKey = account.keys.get(keyIndex: keyIndex)
             keyIndex = keyIndex + 1
-        }
-        // filter out keys if needed
-        var keys: {Int: AnyStruct} = {}
-        if ignoreZeroWeight || ignoreRevoked {
-            for key in acctKeys.keys {
-                if let value = acctKeys[key] {
-                    if ignoreZeroWeight && value.weight == UFix64(0) {
-                        continue    
-                    }  
-                    if ignoreRevoked && value.isRevoked {
-                        continue    
-                    }
-                    keys[key] = value
-                }
-                keyIndex = keyIndex + 1
-                if keyCap > 0 && keys.length >= keyCap {
-                    break
-                }
-            }
-        } else {
-            keys = acctKeys
-        }
+          if let _currKey = currKey {
+              var included = true
+              if ignoreZeroWeight && _currKey.weight == UFix64(0) {
+                included = false
+              }
+              if ignoreRevoked && _currKey.isRevoked {
+                  included = false
+              }
+              if (included) {
+                keys[_currKey.keyIndex] = _AccountKey(acctKey: _currKey)
+              }              
+          } else {
+              didNotFindKey = true
+          }
+          if keyCap > 0 && keys.length >= keyCap {
+              didNotFindKey = true
+          }
 
-        if keys.length > 0 {
-            allKeys[address] = keys
         }
+        allKeys[address] = keys
     }
 
     return allKeys

@@ -145,7 +145,7 @@ func runScript(
 	result, err := retryScriptUntilSuccess(ctx, log, currentBlock.Height, script, arguments, flowClient, conf.Pause)
 
 	if err != nil {
-		log.Error().Msgf("long running script error, reducing num accounts. (%d addr)", len(accountsCadenceValues))
+		log.Error().Err(err).Msgf("long running script error, reducing num accounts. (%d addr)", len(accountsCadenceValues))
 		for _, newAddresses := range splitAddr(addresses) {
 			log.Warn().Msgf("rerunning script with fewer addresses (%d addr)", len(newAddresses))
 			runScript(ctx, conf, newAddresses, log, script, flowClient, handler)
