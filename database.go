@@ -307,7 +307,7 @@ func (d *Database) Stats() PublicKeyStatus {
 	blk, errLoading := d.GetLoadingBlockHeight()
 	stats.UpdatedToBlock = int(value)
 	stats.PendingToBlock = int(blk)
-	if err != nil {
+	if err != nil || value == 0 {
 		stats.UpdatedToBlock = -1
 		stats.IsBulkLoading = true
 	}

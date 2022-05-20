@@ -23,29 +23,45 @@ pub fun main(addresses: [Address], keyCap: Int, ignoreZeroWeight: Bool, ignoreRe
     for address in addresses {
         let account = getAccount(address)
 
-        let keys: {Int: AnyStruct} = {}
+        let acctKeys: {Int: _AccountKey} = {}
 
         var keyIndex: Int = 0
         var didNotFindKey: Bool = false
 
         while(!didNotFindKey) {
-          let currKey = account.keys.get(keyIndex: keyIndex)
-          if let _currKey = currKey {
-              if !ignoreZeroWeight || _currKey.weight > UFix64(0) {
-                keys[keyIndex] = _AccountKey(acctKey: _currKey)
-              }
-              if !ignoreRevoked || !_currKey.isRevoked {
-                  keys[keyIndex] = _AccountKey(acctKey: _currKey)
-              }
-          } else {
-              didNotFindKey = true
-          }
-          if keyCap > 0 && keys.length >= keyCap {
-              didNotFindKey = true
-          }
-          keyIndex = keyIndex + 1
+            let currKey = account.keys.get(keyIndex: keyIndex)
+            if let _currKey = currKey {
+                acctKeys[keyIndex] = _AccountKey(acctKey: _currKey)
+            } else {
+                didNotFindKey = true
+            }
+            keyIndex = keyIndex + 1
         }
-        allKeys[address] = keys
+        // filter out keys if needed
+        var keys: {Int: AnyStruct} = {}
+        if ignoreZeroWeight || ignoreRevoked {
+            for key in acctKeys.keys {
+                if let value = acctKeys[key] {
+                    if ignoreZeroWeight && value.weight == UFix64(0) {
+                        continue    
+                    }  
+                    if ignoreRevoked && value.isRevoked {
+                        continue    
+                    }
+                    keys[key] = value
+                }
+                keyIndex = keyIndex + 1
+                if keyCap > 0 && keys.length >= keyCap {
+                    break
+                }
+            }
+        } else {
+            keys = acctKeys
+        }
+
+        if keys.length > 0 {
+            allKeys[address] = keys
+        }
     }
 
     return allKeys
