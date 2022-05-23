@@ -89,8 +89,10 @@ account object:
 
 ```
 {
-"publicKeyCount": int       // total public keys indexed
-"currentBlockHeight": int   // current block of access node
-"updatedToBlockHeight": int // block data is updated against
+"publicKeyCount": int         // total public keys indexed
+"currentBlockHeight": int     // current block of access node
+"updatedToBlockHeight": int   // block data is updated against
+"pendingLoadBlockHeight": int // block height loading data from 
+"isBulkLoading": bool         // indicates if bulk loading data
 }
 ```
