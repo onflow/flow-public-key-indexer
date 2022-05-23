@@ -48,6 +48,10 @@ A observer service for indexing flow Accounts public keys and REST service that 
 `KEYIDX_MAXBLOCKRANGE` default: 600
 <br>Max Block Range: number of blocks that will trigger a bulk load if services falls behind. If this happens try increasing `Batch Size` parameter to a safe amount and not to trigger max computation error when cadence script is executed. Also, the server can only query 600 blocks</br>
 
+`KEYIDX_SILENCEBADGERDB` default: true
+<br>Badger db has log output that is not informative, the user can choose to see the output if this is changed to false</br>
+
+
 ## How to Run
 Since this is a golang service there are many ways to run it. Below are two ways to run this service
 #### Command line

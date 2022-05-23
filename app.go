@@ -26,7 +26,7 @@ type Params struct {
 	BlockPolIntervalSec int      `default:"180"`
 	MaxBlockRange       int      `default:"600"`
 	FetchSlowDownMs     int      `default:"50"`
-	SilenceBaderdb      bool     `default:"true"`
+	SilenceBadgerdb     bool     `default:"true"`
 }
 type App struct {
 	DB         *Database
@@ -39,7 +39,7 @@ type App struct {
 func (a *App) Initialize(params Params) {
 	params.AllFlowUrls = setAllFlowUrls(params)
 	a.p = params
-	a.DB = NewDatabase(params.DbPath, params.SilenceBaderdb)
+	a.DB = NewDatabase(params.DbPath, params.SilenceBadgerdb)
 	a.flowClient = NewFlowClient(strings.TrimSpace(a.p.FlowUrl1))
 	a.dataLoader = NewDataLoader(*a.DB, *a.flowClient, params)
 	a.rest = NewRest(*a.DB, *a.flowClient, params)
