@@ -10,7 +10,7 @@ import (
 
 type Params struct {
 	LogLevel            string `default:"info"`
-	Port                string `default:"8888"`
+	Port                string `default:"8080"`
 	FlowUrl1            string `default:"access.mainnet.nodes.onflow.org:9000"`
 	FlowUrl2            string
 	FlowUrl3            string
