@@ -115,7 +115,7 @@ spec:
             initialDelaySeconds: 1
             periodSeconds: 10
             httpGet:
-              path: /ping
+              path: /status
               port: web
 
           # Resource requests and constraints
