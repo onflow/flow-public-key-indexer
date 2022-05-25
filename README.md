@@ -60,7 +60,7 @@ Since this is a golang service there are many ways to run it. Below are two ways
 Create a docker container<br>
 ```docker build -t key-indexer .```
 Run the docker and map the port <br>
-```docker run -it -p 8888:8888 --env key-indexer```
+```docker run -it -p 8888:8080 --env key-indexer```
 ## REST service
 `Endpoints`
 * \<root\>/key/{public key}
