@@ -58,9 +58,15 @@ Since this is a golang service there are many ways to run it. Below are two ways
 ```go run .```
 #### Docker
 Create a docker container<br>
-```docker build -t key-indexer .```
-Run the docker and map the port <br>
-```docker run -it -p 8888:8080 key-indexer```
+```docker build -t key-indexer .``` <br>
+This service stores public key data and needs persistent storage <br>
+Creatge a volumee. Run the docker and map the port and use the volume<br>
+```docker volume create key-indexer-vol``` <br>
+```docker run -p 8888:8080 --mount source=key-indexer-vol,target=/db key-indexer``` <br>
+To see the logs of the container, get the container id <br>
+```docker container ls``` <br>
+View the containers logs <br>
+```docker logs <container id>``` <br>
 ## REST service
 `Endpoints`
 * \<root\>/key/{public key}
