@@ -137,7 +137,7 @@ func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange in
 		go func() { a.DB.UpdateTotalPublicKeyCount() }()
 	}
 	if restart && !isLoading {
-		log.Info().Msg("Force restart bulk load")
+		log.Warn().Msg("Force restart bulk load")
 		go func() { a.bulkLoad(addressChan) }()
 	}
 }

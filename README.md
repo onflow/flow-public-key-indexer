@@ -60,9 +60,8 @@ Since this is a golang service there are many ways to run it. Below are two ways
 Create a docker container<br>
 ```docker build -t key-indexer .``` <br>
 This service stores public key data and needs persistent storage <br>
-Creatge a volumee. Run the docker and map the port and use the volume<br>
-```docker volume create --driver local --opt o=size=180G key-indexer-vol``` <br>
-```docker run -p 8888:8080 --env KEYIDX_DBPATH=/db --mount source=key-indexer-vol,target=/db key-indexer``` <br>
+Run the docker and map the port and use a directory on disk<br>
+```docker run -p 8888:8080 --env KEYIDX_DBPATH=/db -v /tmp:/db key-indexer``` <br>
 To see the logs of the container, get the container id <br>
 ```docker container ls``` <br>
 View the containers logs <br>
