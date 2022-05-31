@@ -57,7 +57,7 @@ Since this is a golang service there are many ways to run it. Below are two ways
 ### Command line
 ```go run .```
 ### Docker
-Configuration: Run docker in default 10 gig memory size. Reducing the running memory size reduces performance, the lowest is 3 gig but bulk sync will be very slow and public key responses will also be slow.<br>
+Configuration: Run docker in default 10 gig memory size. Reducing the running memory size reduces performance, the lowest is 4 gig, bulk sync and public key query responses are reasonabel compared to running with more memory.<br>
 Create a docker container<br>
 ```docker build -t key-indexer .``` <br>
 This service stores public key data and needs persistent storage <br>
