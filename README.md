@@ -54,13 +54,15 @@ A observer service for indexing flow Accounts public keys and REST service that 
 
 ## How to Run
 Since this is a golang service there are many ways to run it. Below are two ways to run this service
-#### Command line
+### Command line
 ```go run .```
-#### Docker
+### Docker
+Configuration: Run docker in default 10 gig memory size. Reducing the running memory size reduces performance, the lowest is 3 gig but bulk sync will be very slow and public key responses will also be slow.<br>
 Create a docker container<br>
 ```docker build -t key-indexer .``` <br>
 This service stores public key data and needs persistent storage <br>
 Run the docker and map the port and use a directory on disk<br>
+Notice that environmental variables can be passed in. See variables above<br>
 ```docker run -p 8888:8080 --env KEYIDX_DBPATH=/db -v /tmp:/db key-indexer``` <br>
 To see the logs of the container, get the container id <br>
 ```docker container ls``` <br>
