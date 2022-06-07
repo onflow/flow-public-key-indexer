@@ -149,13 +149,7 @@ func convertPublicKey(pks []PublicKey, height uint64) []PublicKeyIndexer {
 	allPki := map[string]PublicKeyIndexer{}
 	for _, publicKey := range pks {
 		newAcct := makePublicKeyIndexer(publicKey, height)
-		pki, found := allPki[publicKey.account]
-		if !found {
-			newPki := PublicKeyIndexer{}
-			newPki.Accounts = []Account{newAcct}
-			newPki.PublicKey = publicKey.publicKey
-			allPki[publicKey.publicKey] = newPki
-		} else {
+		if pki, found := allPki[publicKey.publicKey]; found {
 			unique := true
 			for _, pk := range pki.Accounts {
 				if pk.Account == newAcct.Account && pk.KeyId == newAcct.KeyId {
@@ -165,16 +159,20 @@ func convertPublicKey(pks []PublicKey, height uint64) []PublicKeyIndexer {
 			}
 			if unique {
 				pki.Accounts = append(pki.Accounts, newAcct)
+				allPki[pki.PublicKey] = pki
 			}
+		} else {
+			newPki := PublicKeyIndexer{}
+			newPki.Accounts = []Account{newAcct}
+			newPki.PublicKey = publicKey.publicKey
+			allPki[publicKey.publicKey] = newPki
 		}
-
 	}
 	values := make([]PublicKeyIndexer, 0, len(allPki))
-	for _, tx := range allPki {
-		values = append(values, tx)
+	for _, pi := range allPki {
+		values = append(values, pi)
 	}
 	return values
-
 }
 
 func makePublicKeyIndexer(pk PublicKey, height uint64) Account {

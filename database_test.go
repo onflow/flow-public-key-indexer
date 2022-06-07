@@ -98,6 +98,54 @@ func TestAddAnotherAccount(t *testing.T) {
 	checkPublicKey(t, err2, aggPki2, testPublicKey4)
 }
 
+func TestAddSameAccountDiffKey(t *testing.T) {
+	pkiAcct := []Account{{
+		Account:     "0x1e3c78c6d580273b",
+		BlockHeight: 1,
+		KeyId:       0,
+		Weight:      400,
+		SigningAlgo: 1,
+		HashingAlgo: 3,
+		IsRevoked:   false,
+	}, {
+		Account:     "0x1e3c78c6d580273b",
+		BlockHeight: 2,
+		KeyId:       1,
+		Weight:      400,
+		SigningAlgo: 1,
+		HashingAlgo: 3,
+		IsRevoked:   false,
+	}, {
+		Account:     "0x1e3c78c6d580273b",
+		BlockHeight: 3,
+		KeyId:       2,
+		Weight:      400,
+		SigningAlgo: 1,
+		HashingAlgo: 3,
+		IsRevoked:   false,
+	}}
+	pki := PublicKeyIndexer{
+		PublicKey: "df37f72795256b1a4bd797469455b9ec7cf7e5e5e1201cdd90df8daf647b951f28babba11bba2197a9f74dac66f02d3c0028befe51b80fb5ac4002fa970afc3b",
+		Accounts:  pkiAcct,
+	}
+
+	// test storing key and retreiving it
+	db := NewDatabase("./tests2", false)
+
+	pkis := []PublicKeyIndexer{pki}
+
+	db.UpdatePublicKeys(pkis)
+	log.Info().Msg("test first insert")
+	testPublicKey, err := db.GetPublicKey(pki.PublicKey, -1, -1, false, false)
+	if err != nil {
+		t.Errorf("some error %v", err)
+	}
+
+	if len(testPublicKey.Accounts) != len(pkiAcct) {
+		t.Errorf("account keys does not match %d should be %d", len(testPublicKey.Accounts), len(pkiAcct))
+	}
+}
+
 func checkAccounts(t *testing.T, oAccounts, tAccounts []Account) {
 	if len(oAccounts) != len(tAccounts) {
 		t.Errorf("account len not the same o: %d t: %d", len(oAccounts), len(tAccounts))
