@@ -53,6 +53,11 @@ func NewDatabase(dbPath string, silence bool) *Database {
 	return &d
 }
 
+func (d *Database) CleanUp() {
+	log.Debug().Msg("Cleaning up logs to save space")
+	d.db.RunValueLogGC(0.5)
+}
+
 func (d *Database) UpdatePublicKeys(pkis []PublicKeyIndexer) {
 	maxRetries := 5
 	for _, pki := range pkis {
@@ -264,25 +269,26 @@ func (d *Database) ClearAllData() error {
 	return d.db.DropAll()
 }
 
-func (d *Database) ReadValues() error {
-	return d.db.View(func(txn *badger.Txn) error {
+func (d *Database) ReadKeyValues(limit int) []string {
+	var keys []string
+	d.db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
 		opts.PrefetchSize = 10
 		it := txn.NewIterator(opts)
 		defer it.Close()
+		count := 0
 		for it.Rewind(); it.Valid(); it.Next() {
 			item := it.Item()
 			k := item.Key()
-			err := item.Value(func(v []byte) error {
-				log.Info().Msgf("key=%s, value=%s\n", k, v)
-				return nil
-			})
-			if err != nil {
-				return err
+			count = count + 1
+			keys = append(keys, string(k))
+			if count > limit {
+				break
 			}
 		}
 		return nil
 	})
+	return keys
 }
 
 func (d *Database) UpdateTotalPublicKeyCount() {

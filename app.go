@@ -94,7 +94,10 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 	currentBlock, _ := a.flowClient.GetCurrentBlockHeight()
 	// sets starting block height for incremental loader
 	a.DB.updateLoadingBlockHeight(currentBlock)
+
 	errLoad := a.dataLoader.RunAllAddressesLoader(addressChan)
+	//errLoad := testRunAddresses(addressChan)
+
 	if errLoad != nil {
 		log.Fatal().Err(errLoad).Msg("could not bulk load public keys")
 	}
@@ -102,6 +105,13 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 	log.Info().Msgf("End Bulk Load, duration %f min", duration.Minutes())
 }
 
+/* Testing
+func testRunAddresses(addressChan chan []flow.Address) error {
+	addresses := []flow.Address{flow.HexToAddress("0x668b91e2995c2eba"), flow.HexToAddress("0x1d83294670972f97")}
+	addressChan <- addresses
+	return nil
+}
+*/
 func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange int, waitNumBlocks int) {
 	start := time.Now()
 	loadingBlkHeight, _ := a.DB.GetLoadingBlockHeight()

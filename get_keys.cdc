@@ -30,7 +30,7 @@ pub fun main(addresses: [Address], keyCap: Int, ignoreZeroWeight: Bool, ignoreRe
 
         while(!didNotFindKey) {
           let currKey = account.keys.get(keyIndex: keyIndex)
-            keyIndex = keyIndex + 1
+          keyIndex = keyIndex + 1
           if let _currKey = currKey {
               var included = true
               if ignoreZeroWeight && _currKey.weight == UFix64(0) {

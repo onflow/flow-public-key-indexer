@@ -132,6 +132,7 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLo
 	addresses, currBlockHeight, restart := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
 	s.DB.updateLoadingBlockHeight(currBlockHeight)
 	addressChan <- addresses
+	s.DB.CleanUp()
 	return len(addresses), restart
 }
 
