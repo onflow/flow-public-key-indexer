@@ -51,6 +51,8 @@ A observer service for indexing flow Accounts public keys and REST service that 
 `KEYIDX_SILENCEBADGERDB` default: true
 <br>Badger db has log output that is not informative, the user can choose to see the output if this is changed to false</br>
 
+`KEYIDX_PURGEONSTART` default: false
+<br>When changing the data structure or want to clear the database and start from scratch chnage this variable to true</br>
 
 ## How to Run
 Since this is a golang service there are many ways to run it. Below are two ways to run this service
