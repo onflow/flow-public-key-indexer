@@ -12,19 +12,9 @@ type Database struct {
 	db *badger.DB
 }
 
-type Account struct {
-	Account     string `json:"account"`
-	BlockHeight uint64 `json:"blockHeight"`
-	KeyId       int    `json:"keyId"`
-	Weight      int    `json:"weight"`
-	SigningAlgo int    `json:"signingAlgo"`
-	HashingAlgo int    `json:"hashingAlgo"`
-	IsRevoked   bool   `json:"isRevoked"`
-}
-
 type PublicKeyIndexer struct {
-	PublicKey string    `json:"publicKey"`
-	Accounts  []Account `json:"accounts"`
+	PublicKey string   `json:"publicKey"`
+	Accounts  []string `json:"accounts"`
 }
 
 type PublicKeyStatus struct {
@@ -39,7 +29,7 @@ const UpdatedToBlock = "updatedToBlock"
 const LoadingFromBlock = "loadingFromBlock"
 const TotalPublicKeyCount = "totalPublicKeyCount"
 
-func NewDatabase(dbPath string, silence bool) *Database {
+func NewDatabase(dbPath string, silence bool, purgeOnStart bool) *Database {
 	d := Database{}
 	c := badger.DefaultOptions(dbPath)
 	if silence {
@@ -50,6 +40,9 @@ func NewDatabase(dbPath string, silence bool) *Database {
 		log.Error().Msg("Badger db could not be opened")
 	}
 	d.db = db
+	if purgeOnStart {
+		d.ClearAllData()
+	}
 	return &d
 }
 
@@ -77,7 +70,7 @@ func (d *Database) UpdatePublicKeys(pkis []PublicKeyIndexer) {
 	}
 }
 
-func UpsertPublicKeyInfo(db *badger.DB, publicKey string, accounts []Account) error {
+func UpsertPublicKeyInfo(db *badger.DB, publicKey string, accounts []string) error {
 	var keyInfo PublicKeyIndexer
 	err := db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(publicKey))
@@ -85,7 +78,7 @@ func UpsertPublicKeyInfo(db *badger.DB, publicKey string, accounts []Account) er
 			return err
 		}
 		return item.Value(func(val []byte) error {
-			var accounts []Account
+			var accounts []string
 			json.Unmarshal(val, &accounts)
 			keyInfo = PublicKeyIndexer{PublicKey: publicKey, Accounts: accounts}
 			return nil
@@ -104,21 +97,11 @@ func UpsertPublicKeyInfo(db *badger.DB, publicKey string, accounts []Account) er
 	return SavePublicKey(db, newKeyInfo)
 }
 
-func MergePublicKeyData(pki PublicKeyIndexer, accounts []Account) PublicKeyIndexer {
+func MergePublicKeyData(pki PublicKeyIndexer, accounts []string) PublicKeyIndexer {
 	existingAccounts := pki.Accounts
 	newAccounts := pki.Accounts
 	for _, a := range accounts {
-		found := false
-		for index, x := range existingAccounts {
-			if x.Account == a.Account && x.KeyId == a.KeyId {
-				found = true
-				if a.BlockHeight > x.BlockHeight {
-					newAccounts[index] = a
-				}
-				break
-			}
-		}
-		if !found {
+		if !contains(existingAccounts, a) {
 			newAccounts = append(newAccounts, a)
 		}
 	}
@@ -133,54 +116,7 @@ func SavePublicKey(db *badger.DB, pki PublicKeyIndexer) error {
 	})
 }
 
-func (d *Database) UpsertPublicKey(publicKey string, accounts []Account) error {
-	err := d.db.Update(func(txn *badger.Txn) error {
-		if _, err := txn.Get([]byte(publicKey)); err == badger.ErrKeyNotFound {
-			data, _ := json.Marshal(accounts)
-			txn.Set([]byte(publicKey), []byte(data))
-			return nil
-		} else {
-			// merge in new accounts
-			keyInfo, errGet := txn.Get([]byte(publicKey))
-			if errGet != nil {
-				log.Error().Err(errGet).Msg("Could not get public key data")
-				return errGet
-			}
-			return keyInfo.Value(func(val []byte) error {
-				var existingAccounts []Account
-				var newAccounts []Account
-				json.Unmarshal(val, &existingAccounts)
-				newAccounts = existingAccounts
-
-				// make sure to have unique array
-				for _, a := range accounts {
-					found := false
-					for index, x := range existingAccounts {
-						if x.Account == a.Account && x.KeyId == a.KeyId {
-							found = true
-							if a.BlockHeight > x.BlockHeight {
-								newAccounts[index] = a
-							}
-							break
-						}
-					}
-					if !found {
-						newAccounts = append(newAccounts, a)
-					}
-				}
-				data, _ := json.Marshal(newAccounts)
-				if errSet := txn.Set([]byte(publicKey), []byte(data)); errSet == badger.ErrConflict {
-					txn = d.db.NewTransaction(true)
-					return txn.Set([]byte(publicKey), []byte(data))
-				}
-				return nil
-			})
-		}
-	})
-	return err
-}
-
-func (d *Database) GetPublicKey(publicKey string, hashAlgo int, signAlgo int, exZero bool, exRevoked bool) (PublicKeyIndexer, error) {
+func (d *Database) GetPublicKey(publicKey string) (PublicKeyIndexer, error) {
 	var keyInfo PublicKeyIndexer
 	err := d.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(publicKey))
@@ -189,28 +125,12 @@ func (d *Database) GetPublicKey(publicKey string, hashAlgo int, signAlgo int, ex
 			return err
 		}
 		errValue := item.Value(func(val []byte) error {
-			var accts []Account
-			var accounts []Account
+			var accts []string
+			var accounts []string
 			json.Unmarshal(val, &accounts)
 
 			for _, a := range accounts {
-				if exZero && a.Weight == 0 {
-					continue
-				}
-				if exRevoked && a.IsRevoked {
-					continue
-				}
-				if hashAlgo != -1 && a.HashingAlgo == hashAlgo {
-					accts = append(accts, a)
-					continue
-				}
-				if signAlgo != -1 && a.SigningAlgo == signAlgo {
-					accts = append(accts, a)
-					continue
-				}
-				if hashAlgo == -1 && signAlgo == -1 {
-					accts = append(accts, a)
-				}
+				accts = append(accts, a)
 			}
 
 			keyInfo = PublicKeyIndexer{PublicKey: publicKey, Accounts: accts}
@@ -266,6 +186,7 @@ func GetBlockInfo(db *badger.DB, name string) (uint64, error) {
 }
 
 func (d *Database) ClearAllData() error {
+	log.Info().Msg("Clear all data on start")
 	return d.db.DropAll()
 }
 
@@ -326,4 +247,13 @@ func (d *Database) Stats() PublicKeyStatus {
 	}
 
 	return stats
+}
+
+func contains(s []string, str string) bool {
+	for _, v := range s {
+		if v == str {
+			return true
+		}
+	}
+	return false
 }

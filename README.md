@@ -77,23 +77,10 @@ serves up json object</p>
 ```
 {
 	"publicKey": string  // public key string in base64
-	"accounts" : account object array
+	"accounts" : string array
 }
 
-account object:
-{
-	"account": string    // address
-	"keyId": string      // index of the key
-	"weight": int        // signing weight of the key
-	"signingAlgo": int   // key signing algo
-	"hashingAlgo": int   // key hashing algo
-	"isRevoked": boolean // key has been revoked
-}
 ```
-
-`signingAlgo` values: 0: unknown, 1: BLSBLS12381, 2: ECDSA_P256, 3: ECDSASecp256k1
-
-`hashingAlgo` values: 0: unknown, 1: "SHA2_256", 2: "SHA2_384", 3: "SHA3_256", 4: "SHA3_384", 5: "KMAC128", 6: "Keccak_256"
 
 * \<root\>/status
 <p>note: this endpoint gives ability to see if the server is active and updating</p>

@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
@@ -47,29 +46,7 @@ func (rest *Rest) getKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	params := mux.Vars(r) // get params
 	publicKey := params["id"]
-	hashAlgo := r.URL.Query().Get("hashAlgo")
-	hashAlgoTest, err := strconv.Atoi(hashAlgo)
-	if err != nil {
-		hashAlgoTest = -1
-	}
-	signAlgo := r.URL.Query().Get("signAlgo")
-	signAlgoTest, err := strconv.Atoi(signAlgo)
-	if err != nil {
-		signAlgoTest = -1
-	}
-	// exclude zero weights
-	exZero := r.URL.Query().Get("exZero")
-	exZeroTest, err := strconv.ParseBool(exZero)
-	if err != nil {
-		exZeroTest = false
-	}
-	// exclude revoked keys
-	exRevoked := r.URL.Query().Get("exRevoked")
-	exRevokedTest, err := strconv.ParseBool(exRevoked)
-	if err != nil {
-		exRevokedTest = false
-	}
-	value, err := rest.DB.GetPublicKey(publicKey, hashAlgoTest, signAlgoTest, exZeroTest, exRevokedTest)
+	value, err := rest.DB.GetPublicKey(publicKey)
 
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, err.Error())

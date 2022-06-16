@@ -18,7 +18,7 @@ func main() {
 		logger.Fatal("error loading godotenv")
 	}
 	var p Params
-	err := envconfig.Process("keyIdx", &p)
+	err := envconfig.Process("KEYIDX", &p)
 
 	if err != nil {
 		logger.Fatal(err.Error())

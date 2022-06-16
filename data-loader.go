@@ -21,7 +21,6 @@ package main
 import (
 	"context"
 	_ "embed"
-	"math/big"
 	"time"
 
 	"github.com/onflow/cadence"
@@ -37,16 +36,11 @@ type DataLoader struct {
 }
 
 type PublicKey struct {
-	hashAlgorithm      uint8
-	isRevoked          bool
-	weight             uint64
-	keyIndex           *big.Int
-	publicKey          string
-	signatureAlgorithm uint8
-	account            string
+	publicKey string
+	account   string
 }
 
-//go:embed get_keys.cdc
+//go:embed get_pub_keys.cdc
 var GetAccountKeys string
 
 type GetAccountKeysHandler func(keys []PublicKey, height uint64, err error)
@@ -58,16 +52,11 @@ func (s *DataLoader) NewGetAccountKeysHandler(handler GetAccountKeysHandler) fun
 			address := allKeys.Key.(cadence.Address)
 			counter := 0
 			keys := []PublicKey{}
-			for _, nameCodePair := range allKeys.Value.(cadence.Dictionary).Pairs {
-				rawStruct := nameCodePair.Value.(cadence.Struct)
+			for _, nameCodePair := range allKeys.Value.(cadence.Array).Values {
+				rawStruct := nameCodePair.(cadence.String)
 				data := PublicKey{
-					hashAlgorithm:      rawStruct.Fields[0].ToGoValue().(uint8),
-					isRevoked:          rawStruct.Fields[1].ToGoValue().(bool),
-					weight:             rawStruct.Fields[2].ToGoValue().(uint64),
-					publicKey:          rawStruct.Fields[3].ToGoValue().(string),
-					keyIndex:           rawStruct.Fields[4].ToGoValue().(*big.Int),
-					signatureAlgorithm: rawStruct.Fields[5].ToGoValue().(uint8),
-					account:            address.String(),
+					publicKey: rawStruct.ToGoValue().(string),
+					account:   address.String(),
 				}
 				keys = append(keys, data)
 				counter = counter + 1
@@ -141,6 +130,7 @@ func (s *DataLoader) ProcessAddressData(keys []PublicKey, height uint64, err err
 		log.Err(err).Msgf("failed to get account key info")
 		return
 	}
+
 	pkis := convertPublicKey(keys, height)
 	// send to DB
 	s.DB.UpdatePublicKeys(pkis)
@@ -149,22 +139,15 @@ func (s *DataLoader) ProcessAddressData(keys []PublicKey, height uint64, err err
 func convertPublicKey(pks []PublicKey, height uint64) []PublicKeyIndexer {
 	allPki := map[string]PublicKeyIndexer{}
 	for _, publicKey := range pks {
-		newAcct := makePublicKeyIndexer(publicKey, height)
+		newAcct := publicKey.account
 		if pki, found := allPki[publicKey.publicKey]; found {
-			unique := true
-			for _, pk := range pki.Accounts {
-				if pk.Account == newAcct.Account && pk.KeyId == newAcct.KeyId {
-					unique = false
-					break
-				}
-			}
-			if unique {
+			if !contains(pki.Accounts, newAcct) {
 				pki.Accounts = append(pki.Accounts, newAcct)
 				allPki[pki.PublicKey] = pki
 			}
 		} else {
 			newPki := PublicKeyIndexer{}
-			newPki.Accounts = []Account{newAcct}
+			newPki.Accounts = []string{newAcct}
 			newPki.PublicKey = publicKey.publicKey
 			allPki[publicKey.publicKey] = newPki
 		}
@@ -174,16 +157,4 @@ func convertPublicKey(pks []PublicKey, height uint64) []PublicKeyIndexer {
 		values = append(values, pi)
 	}
 	return values
-}
-
-func makePublicKeyIndexer(pk PublicKey, height uint64) Account {
-	return Account{
-		Account:     pk.account,
-		BlockHeight: height,
-		KeyId:       int(pk.keyIndex.Int64()),
-		Weight:      int(pk.weight) / 100000000, // convert to display value
-		SigningAlgo: int(pk.signatureAlgorithm),
-		HashingAlgo: int(pk.hashAlgorithm),
-		IsRevoked:   pk.isRevoked,
-	}
 }

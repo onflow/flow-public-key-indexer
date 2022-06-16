@@ -7,77 +7,45 @@ import (
 )
 
 func TestAddAnotherAccount(t *testing.T) {
-	pkiAcct := []Account{{
-		Account:     "0x5487b9669ebabd39",
-		BlockHeight: 1,
-		KeyId:       0,
-		Weight:      400,
-		SigningAlgo: 1,
-		HashingAlgo: 3,
-		IsRevoked:   false,
-	}}
+	pkiAcct := []string{"0x5487b9669ebabd39"}
 	pki := PublicKeyIndexer{
 		PublicKey: "ecb8c19039edeafb7ae262dafc18c060aab029bef9be37b712cdf585894a270ed1365db6c114f8e47d75b6604d12734edd749c7029eb9af1186e1cfc2799bd07",
 		Accounts:  pkiAcct,
 	}
 
-	pki2Acct := []Account{{
-		Account:     "0x5c02410a188d3d1a",
-		BlockHeight: 2,
-		KeyId:       1,
-		Weight:      500,
-		SigningAlgo: 2,
-		HashingAlgo: 1,
-		IsRevoked:   false,
-	}}
+	pki2Acct := []string{"0x5c02410a188d3d1a"}
 	pki2 := PublicKeyIndexer{
 		PublicKey: "ecb8c19039edeafb7ae262dafc18c060aab029bef9be37b712cdf585894a270ed1365db6c114f8e47d75b6604d12734edd749c7029eb9af1186e1cfc2799bd07",
 		Accounts:  pki2Acct,
 	}
 
-	pki3Acct := []Account{{
-		Account:     "0x5c02410a188d3d1a",
-		BlockHeight: 3,
-		KeyId:       1,
-		Weight:      500,
-		SigningAlgo: 2,
-		HashingAlgo: 1,
-		IsRevoked:   true,
-	}}
+	pki3Acct := []string{"0x5c02410a188d3d1a"}
 	pki3 := PublicKeyIndexer{
 		PublicKey: "ecb8c19039edeafb7ae262dafc18c060aab029bef9be37b712cdf585894a270ed1365db6c114f8e47d75b6604d12734edd749c7029eb9af1186e1cfc2799bd07",
 		Accounts:  pki3Acct,
 	}
 
-	pki4Acct := []Account{{
-		Account:     "0x5c02410a188d3d1a",
-		BlockHeight: 0,
-		KeyId:       1,
-		Weight:      500,
-		SigningAlgo: 2,
-		HashingAlgo: 1,
-		IsRevoked:   true,
-	}}
+	pki4Acct := []string{"0x5c02410a188d3d1a"}
 	pki4 := PublicKeyIndexer{
 		PublicKey: "ecb8c19039edeafb7ae262dafc18c060aab029bef9be37b712cdf585894a270ed1365db6c114f8e47d75b6604d12734edd749c7029eb9af1186e1cfc2799bd07",
 		Accounts:  pki4Acct,
 	}
 
 	// test storing key and retreiving it
-	db := NewDatabase("./tests", false)
+	db := NewDatabase("./tests", false, false)
 
 	pkis := []PublicKeyIndexer{pki}
 	pkis2 := []PublicKeyIndexer{pki2}
 
 	db.UpdatePublicKeys(pkis)
 	log.Info().Msg("test first insert")
-	testPublicKey, err := db.GetPublicKey(pki.PublicKey, -1, -1, false, false)
+	testPublicKey, err := db.GetPublicKey(pki.PublicKey)
 	checkPublicKey(t, err, pki, testPublicKey)
 
 	// add another account to public key
 	log.Info().Msg("test second insert")
 	db.UpdatePublicKeys(pkis2)
-	testPublicKey2, err2 := db.GetPublicKey(pki.PublicKey, -1, -1, false, false)
+	testPublicKey2, err2 := db.GetPublicKey(pki.PublicKey)
 
 	aggPki1 := pki
 	aggPki1.Accounts = append(pkiAcct, pki2Acct...)
@@ -86,7 +54,7 @@ func TestAddAnotherAccount(t *testing.T) {
 	pkis3 := []PublicKeyIndexer{pki3}
 	log.Info().Msg("test third insert")
 	db.UpdatePublicKeys(pkis3)
-	testPublicKey3, err2 := db.GetPublicKey(pki.PublicKey, -1, -1, false, false)
+	testPublicKey3, err2 := db.GetPublicKey(pki.PublicKey)
 	aggPki2 := pki
 	aggPki2.Accounts = append(pkiAcct, pki3Acct...)
 	checkPublicKey(t, err2, aggPki2, testPublicKey3)
@@ -94,49 +62,25 @@ func TestAddAnotherAccount(t *testing.T) {
 	pkis4 := []PublicKeyIndexer{pki4}
 	log.Info().Msg("test old data not insert")
 	db.UpdatePublicKeys(pkis4)
-	testPublicKey4, err2 := db.GetPublicKey(pki.PublicKey, -1, -1, false, false)
+	testPublicKey4, err2 := db.GetPublicKey(pki.PublicKey)
 	checkPublicKey(t, err2, aggPki2, testPublicKey4)
 }
 
 func TestAddSameAccountDiffKey(t *testing.T) {
-	pkiAcct := []Account{{
-		Account:     "0x1e3c78c6d580273b",
-		BlockHeight: 1,
-		KeyId:       0,
-		Weight:      400,
-		SigningAlgo: 1,
-		HashingAlgo: 3,
-		IsRevoked:   false,
-	}, {
-		Account:     "0x1e3c78c6d580273b",
-		BlockHeight: 2,
-		KeyId:       1,
-		Weight:      400,
-		SigningAlgo: 1,
-		HashingAlgo: 3,
-		IsRevoked:   false,
-	}, {
-		Account:     "0x1e3c78c6d580273b",
-		BlockHeight: 3,
-		KeyId:       2,
-		Weight:      400,
-		SigningAlgo: 1,
-		HashingAlgo: 3,
-		IsRevoked:   false,
-	}}
+	pkiAcct := []string{"0x1e3c78c6d580273b", "0x1e3c78c6d580273b", "0x1e3c78c6d580273b"}
 	pki := PublicKeyIndexer{
 		PublicKey: "df37f72795256b1a4bd797469455b9ec7cf7e5e5e1201cdd90df8daf647b951f28babba11bba2197a9f74dac66f02d3c0028befe51b80fb5ac4002fa970afc3b",
 		Accounts:  pkiAcct,
 	}
 
 	// test storing key and retreiving it
-	db := NewDatabase("./tests2", false)
+	db := NewDatabase("./tests2", false, false)
 
 	pkis := []PublicKeyIndexer{pki}
 
 	db.UpdatePublicKeys(pkis)
 	log.Info().Msg("test first insert")
-	testPublicKey, err := db.GetPublicKey(pki.PublicKey, -1, -1, false, false)
+	testPublicKey, err := db.GetPublicKey(pki.PublicKey)
 	if err != nil {
 		t.Errorf("some error %v", err)
 	}
@@ -146,7 +90,7 @@ func TestAddSameAccountDiffKey(t *testing.T) {
 	}
 }
 
-func checkAccounts(t *testing.T, oAccounts, tAccounts []Account) {
+func checkAccounts(t *testing.T, oAccounts, tAccounts []string) {
 	if len(oAccounts) != len(tAccounts) {
 		t.Errorf("account len not the same o: %d t: %d", len(oAccounts), len(tAccounts))
 	}
@@ -155,21 +99,9 @@ func checkAccounts(t *testing.T, oAccounts, tAccounts []Account) {
 	}
 }
 
-func checkAccount(t *testing.T, oAccount Account, tAccount Account) {
-	if tAccount.Account != oAccount.Account {
-		t.Errorf("account names did not match %v", oAccount.Account)
-	}
-	if tAccount.KeyId != oAccount.KeyId {
-		t.Errorf("key id does not match %v", oAccount.Account)
-	}
-	if tAccount.Weight != oAccount.Weight {
-		t.Errorf("weight does not match %v", oAccount.Account)
-	}
-	if tAccount.HashingAlgo != oAccount.HashingAlgo {
-		t.Errorf("HashingAlgo does not match %v", oAccount.Account)
-	}
-	if tAccount.SigningAlgo != oAccount.SigningAlgo {
-		t.Errorf("SigningAlgo does not match %v", oAccount.Account)
+func checkAccount(t *testing.T, oAccount string, tAccount string) {
+	if tAccount != oAccount {
+		t.Errorf("account names did not match %v", oAccount)
 	}
 }
 

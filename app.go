@@ -27,6 +27,7 @@ type Params struct {
 	MaxBlockRange       int      `default:"600"`
 	FetchSlowDownMs     int      `default:"50"`
 	SilenceBadgerdb     bool     `default:"true"`
+	PurgeOnStart        bool     `default:"false"`
 }
 type App struct {
 	DB         *Database
@@ -39,7 +40,7 @@ type App struct {
 func (a *App) Initialize(params Params) {
 	params.AllFlowUrls = setAllFlowUrls(params)
 	a.p = params
-	a.DB = NewDatabase(params.DbPath, params.SilenceBadgerdb)
+	a.DB = NewDatabase(params.DbPath, params.SilenceBadgerdb, params.PurgeOnStart)
 	a.flowClient = NewFlowClient(strings.TrimSpace(a.p.FlowUrl1))
 	a.dataLoader = NewDataLoader(*a.DB, *a.flowClient, params)
 	a.rest = NewRest(*a.DB, *a.flowClient, params)
@@ -99,15 +100,18 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 	//errLoad := testRunAddresses(addressChan)
 
 	if errLoad != nil {
-		log.Fatal().Err(errLoad).Msg("could not bulk load public keys")
+		log.Error().Err(errLoad).Msg("could not bulk load public keys")
 	}
 	duration := time.Since(start)
 	log.Info().Msgf("End Bulk Load, duration %f min", duration.Minutes())
 }
 
-/* Testing
+/*
 func testRunAddresses(addressChan chan []flow.Address) error {
-	addresses := []flow.Address{flow.HexToAddress("0x668b91e2995c2eba"), flow.HexToAddress("0x1d83294670972f97")}
+	// mainnet
+	addresses := []flow.Address{flow.HexToAddress("0xb643d57edb1740c6"), flow.HexToAddress("0x1b1c31af469bc4dc")}
+	// testnet
+	//addresses := []flow.Address{flow.HexToAddress("0x668b91e2995c2eba"), flow.HexToAddress("0x1d83294670972f97")}
 	addressChan <- addresses
 	return nil
 }
@@ -129,7 +133,7 @@ func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange in
 
 	if isLoadingOutOfRange {
 		log.Debug().Msgf("curr: %d ldg blk: %d diff: %d max: %d", currentBlock, loadingBlkHeight, loadingBlockRange, maxBlockRange)
-		log.Fatal().Msg("loading will not catch up, adjust run parameters to speed up load time")
+		log.Error().Msg("loading will not catch up, adjust run parameters to speed up load time")
 		return
 	}
 
