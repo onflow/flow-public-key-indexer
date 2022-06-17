@@ -66,6 +66,9 @@ func (a *App) loadPublicKeyData() {
 
 	// if restarted during initial loading, restart bulk load
 	if updatedBlkHeight == 0 || isTooFarBehind {
+		if isTooFarBehind {
+			log.Info().Msg("Incremental is too far behind, starting bulk load")
+		}
 		go func() { a.bulkLoad(addressChan) }()
 	}
 

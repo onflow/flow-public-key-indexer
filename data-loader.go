@@ -122,6 +122,11 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLo
 	s.DB.updateLoadingBlockHeight(currBlockHeight)
 	addressChan <- addresses
 	s.DB.CleanUp()
+	updatedToBlock, _ := s.DB.GetUpdatedBlockHeight()
+	if updatedToBlock != 0 {
+		// bulk loading is done, update loaded block height
+		s.DB.updateUpdatedBlockHeight(currBlockHeight)
+	}
 	return len(addresses), restart
 }
 
