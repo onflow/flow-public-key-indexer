@@ -32,6 +32,9 @@ const TotalPublicKeyCount = "totalPublicKeyCount"
 func NewDatabase(dbPath string, silence bool, purgeOnStart bool) *Database {
 	d := Database{}
 	c := badger.DefaultOptions(dbPath)
+	c.SyncWrites = true
+	c.Dir, c.ValueDir = dbPath, dbPath
+
 	if silence {
 		c.Logger = nil // ignore logs from badgerdb
 	}
@@ -46,9 +49,9 @@ func NewDatabase(dbPath string, silence bool, purgeOnStart bool) *Database {
 	return &d
 }
 
-func (d *Database) CleanUp() {
+func (d *Database) CleanUp() error {
 	log.Debug().Msg("Cleaning up logs to save space")
-	d.db.RunValueLogGC(0.5)
+	return d.db.RunValueLogGC(0.5)
 }
 
 func (d *Database) UpdatePublicKeys(pkis []PublicKeyIndexer) {
@@ -61,7 +64,7 @@ func (d *Database) UpdatePublicKeys(pkis []PublicKeyIndexer) {
 				break
 			}
 			if retry > maxRetries {
-				log.Error().Err(err).Msgf("exhausted retries, %v", pki.PublicKey)
+				log.Error().Err(err).Msgf("exhausted merge save retries, %v", pki.PublicKey)
 				break
 			}
 			log.Warn().Err(err).Msgf("retrying saving public key, %v", pki.PublicKey)
@@ -78,9 +81,9 @@ func UpsertPublicKeyInfo(db *badger.DB, publicKey string, accounts []string) err
 			return err
 		}
 		return item.Value(func(val []byte) error {
-			var accounts []string
-			json.Unmarshal(val, &accounts)
-			keyInfo = PublicKeyIndexer{PublicKey: publicKey, Accounts: accounts}
+			var oAccounts []string
+			json.Unmarshal(val, &oAccounts)
+			keyInfo = PublicKeyIndexer{PublicKey: publicKey, Accounts: oAccounts}
 			return nil
 		})
 	})
@@ -97,11 +100,42 @@ func UpsertPublicKeyInfo(db *badger.DB, publicKey string, accounts []string) err
 	return SavePublicKey(db, newKeyInfo)
 }
 
+func (d *Database) RemovePublicKeyInfo(publicKey string, account string) error {
+	var keyInfo PublicKeyIndexer
+	err := d.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(publicKey))
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			var oAccounts []string
+			json.Unmarshal(val, &oAccounts)
+			keyInfo = PublicKeyIndexer{PublicKey: publicKey, Accounts: oAccounts}
+			return nil
+		})
+	})
+	var newKeyInfo PublicKeyIndexer
+	if err == badger.ErrKeyNotFound {
+		return nil
+	}
+	var accounts []string
+	for _, acct := range keyInfo.Accounts {
+		if acct != account {
+			accounts = append(accounts, acct)
+		}
+	}
+	newKeyInfo = PublicKeyIndexer{
+		PublicKey: publicKey,
+		Accounts:  accounts,
+	}
+
+	return SavePublicKey(d.db, newKeyInfo)
+}
+
 func MergePublicKeyData(pki PublicKeyIndexer, accounts []string) PublicKeyIndexer {
-	existingAccounts := pki.Accounts
 	newAccounts := pki.Accounts
 	for _, a := range accounts {
-		if !contains(existingAccounts, a) {
+		if !contains(pki.Accounts, a) {
 			newAccounts = append(newAccounts, a)
 		}
 	}
@@ -125,15 +159,9 @@ func (d *Database) GetPublicKey(publicKey string) (PublicKeyIndexer, error) {
 			return err
 		}
 		errValue := item.Value(func(val []byte) error {
-			var accts []string
 			var accounts []string
 			json.Unmarshal(val, &accounts)
-
-			for _, a := range accounts {
-				accts = append(accts, a)
-			}
-
-			keyInfo = PublicKeyIndexer{PublicKey: publicKey, Accounts: accts}
+			keyInfo = PublicKeyIndexer{PublicKey: publicKey, Accounts: accounts}
 			return nil
 		})
 		return errValue

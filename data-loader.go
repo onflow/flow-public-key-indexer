@@ -35,6 +35,12 @@ type DataLoader struct {
 	incAddressChan [][]flow.Address
 }
 
+type PublicKeyActions struct {
+	adds      []PublicKey
+	removes   []PublicKey
+	addresses []string
+}
+
 type PublicKey struct {
 	publicKey string
 	account   string
@@ -47,6 +53,10 @@ type GetAccountKeysHandler func(keys []PublicKey, height uint64, err error)
 
 func (s *DataLoader) NewGetAccountKeysHandler(handler GetAccountKeysHandler) func(value cadence.Value, height uint64) {
 	return func(value cadence.Value, height uint64) {
+		if value == nil {
+			log.Warn().Msgf("cadence value is nil, nothing to process")
+			return
+		}
 		allAccountsKeys := []PublicKey{}
 		for _, allKeys := range value.(cadence.Dictionary).Pairs {
 			address := allKeys.Key.(cadence.Address)
@@ -94,7 +104,7 @@ func (s *DataLoader) SetupAddressLoader(addressChan chan []flow.Address) (uint64
 		log.Logger,
 		config,
 		GetAccountKeys,
-		s.NewGetAccountKeysHandler(s.ProcessAddressData),
+		s.NewGetAccountKeysHandler(s.ProcessAddressDataAdditions),
 		addressChan,
 	)
 	return blockHeight, err
@@ -118,19 +128,51 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) erro
 }
 
 func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLoading bool, blockHeight uint64) (int, bool) {
-	addresses, currBlockHeight, restart := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
+	pkAddrActions, currBlockHeight, restart := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
 	s.DB.updateLoadingBlockHeight(currBlockHeight)
-	addressChan <- addresses
-	s.DB.CleanUp()
+
+	var pkAddrs []PublicKey
+	var addresses []flow.Address
+	// filter out empty Public keys and send account addresses to get processed
+	for _, addrPkAction := range pkAddrActions {
+		pkAddrs = append(pkAddrs, addrPkAction.adds...)
+		for _, address := range addrPkAction.addresses {
+			// reload these addresses for removals and cuz of new AccountKeyAdded event format
+			addresses = append(addresses, flow.HexToAddress(address))
+		}
+		for _, removal := range addrPkAction.removes {
+			if removal.publicKey != "" {
+				log.Debug().Msgf("removing %v %v", removal.publicKey, removal.account)
+				s.DB.RemovePublicKeyInfo(removal.publicKey, removal.account)
+			}
+		}
+	}
+
+	if len(addresses) > 0 {
+		// processing account key address
+		addressChan <- unique(addresses)
+	}
+
+	if (len(pkAddrs)) > 0 {
+		s.ProcessAddressDataAdditions(pkAddrs, currBlockHeight, nil)
+	}
+
+	if updatedBlock, updatedErr := s.DB.GetUpdatedBlockHeight(); updatedErr == nil {
+		// check that bulk loading isn't occuring
+		if updatedBlock != 0 {
+			s.DB.CleanUp()
+		}
+	}
+
 	updatedToBlock, _ := s.DB.GetUpdatedBlockHeight()
 	if updatedToBlock != 0 {
 		// bulk loading is done, update loaded block height
 		s.DB.updateUpdatedBlockHeight(currBlockHeight)
 	}
-	return len(addresses), restart
+	return len(pkAddrs), restart
 }
 
-func (s *DataLoader) ProcessAddressData(keys []PublicKey, height uint64, err error) {
+func (s *DataLoader) ProcessAddressDataAdditions(keys []PublicKey, height uint64, err error) {
 	if err != nil {
 		log.Err(err).Msgf("failed to get account key info")
 		return
@@ -162,4 +204,16 @@ func convertPublicKey(pks []PublicKey, height uint64) []PublicKeyIndexer {
 		values = append(values, pi)
 	}
 	return values
+}
+
+func unique(addresses []flow.Address) []flow.Address {
+	keys := make(map[flow.Address]bool)
+	list := []flow.Address{}
+	for _, entry := range addresses {
+		if _, value := keys[entry]; !value {
+			keys[entry] = true
+			list = append(list, entry)
+		}
+	}
+	return list
 }

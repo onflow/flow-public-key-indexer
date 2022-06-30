@@ -94,7 +94,7 @@ func RunAddressCadenceScript(
 	addressChan chan []flow.Address,
 ) (height uint64, err error) {
 	code := []byte(script)
-	flowUrl := conf.FlowAccessNodeURLs[0]
+	flowUrl := conf.FlowAccessNodeURLs[0] // use first flow client url
 	flowClient := getFlowClient(flowUrl)
 
 	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
@@ -102,30 +102,26 @@ func RunAddressCadenceScript(
 		return 0, err
 	}
 
-	for i := 0; i < len(conf.FlowAccessNodeURLs); i++ {
-		flowUrl := conf.FlowAccessNodeURLs[i]
-		log.Debug().Msgf("using flow url %v", flowUrl)
-		go func() {
-			// Each worker has a separate Flow client
-			client := getFlowClient(flowUrl)
-			defer func() {
-				err = client.Close()
-				if err != nil {
-					log.Warn().
-						Err(err).
-						Msg("error closing client")
-				}
-			}()
-
-			// Get the batches of address through addressChan,
-			// run the script with that batch of addresses,
-			// and pass the result to the handler
-
-			for accountAddresses := range addressChan {
-				runScript(ctx, conf, accountAddresses, log, code, flowClient, handler)
+	go func() {
+		// Each worker has a separate Flow client
+		client := getFlowClient(flowUrl)
+		defer func() {
+			err = client.Close()
+			if err != nil {
+				log.Warn().
+					Err(err).
+					Msg("error closing client")
 			}
 		}()
-	}
+
+		// Get the batches of address through addressChan,
+		// run the script with that batch of addresses,
+		// and pass the result to the handler
+
+		for accountAddresses := range addressChan {
+			runScript(ctx, conf, accountAddresses, log, code, flowClient, handler)
+		}
+	}()
 
 	return currentBlock.Height, nil
 }
@@ -142,10 +138,10 @@ func runScript(
 	currentBlock, _ := getBlockHeight(ctx, conf, flowClient)
 	accountsCadenceValues := convertAddresses(addresses)
 	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.maxAcctKeys), cadence.NewBool(conf.ignoreZeroWeight), cadence.NewBool(conf.ignoreRevoked)}
-	result, err := retryScriptUntilSuccess(ctx, log, currentBlock.Height, script, arguments, flowClient, conf.Pause)
+	result, err, rerun := retryScriptUntilSuccess(ctx, log, currentBlock.Height, script, arguments, flowClient, conf.Pause)
 
-	if err != nil {
-		log.Error().Err(err).Msgf("long running script error, reducing num accounts. (%d addr)", len(accountsCadenceValues))
+	if rerun {
+		log.Error().Err(err).Msgf("reducing num accounts. (%d addr)", len(accountsCadenceValues))
 		for _, newAddresses := range splitAddr(addresses) {
 			log.Warn().Msgf("rerunning script with fewer addresses (%d addr)", len(newAddresses))
 			runScript(ctx, conf, newAddresses, log, script, flowClient, handler)
@@ -171,7 +167,7 @@ func getBlockHeight(ctx context.Context, conf Config, flowClient *flowclient.Cli
 	}
 }
 
-// retryScriptUntilSuccess retries running the cadence script until we get a successful response back,
+// retries running the cadence script until we get a successful response back,
 // returning an array of balance pairs, along with a boolean representing whether we can continue
 // or are finished processing.
 func retryScriptUntilSuccess(
@@ -182,9 +178,10 @@ func retryScriptUntilSuccess(
 	arguments []cadence.Value,
 	flowClient *flowclient.Client,
 	pause time.Duration,
-) (cadence.Value, error) {
+) (cadence.Value, error, bool) {
 	var err error
 	var result cadence.Value
+	rerun := true
 	attempts := 0
 	maxAttemps := 5
 	last := time.Now()
@@ -203,27 +200,30 @@ func retryScriptUntilSuccess(
 			grpc.MaxCallRecvMsgSize(16*1024*1024),
 		)
 		if err == nil {
+			rerun = false
 			break
 		}
 		attempts = attempts + 1
-		// really slow down when node is ResourceExhausted
+		if err != nil {
+			log.Error().Err(err).Msgf("%d attempt", attempts)
+		}
+		if attempts > maxAttemps || strings.Contains(err.Error(), "connection termination") {
+			// give up and don't retry
+			rerun = false
+			break
+		}
 		if strings.Contains(err.Error(), "ResourceExhausted") {
-			log.Info().Msgf("server exhausted, taking a second rest. (%d req)", attempts)
+			// really slow down when node is ResourceExhausted
 			time.Sleep(2 * pause)
 			continue
 		}
 		if strings.Contains(err.Error(), "DeadlineExceeded") {
-			// pass error back to caller
-			break
-		}
-
-		log.Error().Err(err).Msgf("unknown error, retrying: (%d attempt)", attempts)
-		if attempts == maxAttemps {
+			// pass error back to caller, script ran too long
 			break
 		}
 	}
 
-	return result, err
+	return result, err, rerun
 }
 
 func convertAddresses(addresses []flow.Address) []cadence.Value {

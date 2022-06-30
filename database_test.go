@@ -25,12 +25,6 @@ func TestAddAnotherAccount(t *testing.T) {
 		Accounts:  pki3Acct,
 	}
 
-	pki4Acct := []string{"0x5c02410a188d3d1a"}
-	pki4 := PublicKeyIndexer{
-		PublicKey: "ecb8c19039edeafb7ae262dafc18c060aab029bef9be37b712cdf585894a270ed1365db6c114f8e47d75b6604d12734edd749c7029eb9af1186e1cfc2799bd07",
-		Accounts:  pki4Acct,
-	}
-
 	// test storing key and retreiving it
 	db := NewDatabase("./tests", false, false)
 
@@ -59,11 +53,15 @@ func TestAddAnotherAccount(t *testing.T) {
 	aggPki2.Accounts = append(pkiAcct, pki3Acct...)
 	checkPublicKey(t, err2, aggPki2, testPublicKey3)
 
-	pkis4 := []PublicKeyIndexer{pki4}
-	log.Info().Msg("test old data not insert")
-	db.UpdatePublicKeys(pkis4)
-	testPublicKey4, err2 := db.GetPublicKey(pki.PublicKey)
-	checkPublicKey(t, err2, aggPki2, testPublicKey4)
+	// test removing
+	db.RemovePublicKeyInfo(pki.PublicKey, pkiAcct[0])
+	onlyOnePk, err2 := db.GetPublicKey(pki.PublicKey)
+	if err2 != nil {
+		t.Error("Error removing key account")
+	}
+	if len(onlyOnePk.Accounts) != 1 {
+		t.Errorf("account removed error %v", pki.Accounts[0])
+	}
 }
 
 func TestAddSameAccountDiffKey(t *testing.T) {
