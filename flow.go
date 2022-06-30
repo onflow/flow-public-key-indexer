@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"math"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/onflow/cadence"
+	jsoncdc "github.com/onflow/cadence/encoding/json"
 	"github.com/onflow/flow-go-sdk"
 	"github.com/onflow/flow-go-sdk/client"
 	"google.golang.org/grpc"
@@ -48,29 +50,29 @@ func (fa *FlowAdapter) GetCurrentBlockHeight() (uint64, error) {
 	return block.Height, nil
 }
 
-func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]flow.Address, uint64, bool) {
+func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]PublicKeyActions, uint64, bool) {
 	itemsPerRequest := 245 // access node can only handel 250
 	eventTypes := []string{"flow.AccountKeyAdded", "flow.AccountKeyRemoved"}
-	var addresses []flow.Address
+	var addrActions []PublicKeyActions
 	restartBulkLoad := true
 	currentHeight, err := fa.GetCurrentBlockHeight()
 	if err != nil {
 		log.Error().Err(err).Msg("Could not get current block height")
-		return addresses, currentHeight, restartBulkLoad
+		return addrActions, currentHeight, restartBulkLoad
 	}
 
 	// backing off a few blocks to allow for buffer
-	backOfHeight := currentHeight // - 10
+	BlockHeight := currentHeight //- 10 // backoff current
 	// create chunks to make sure query limit is not exceeded
 	var chunksEvents []client.EventRangeQuery
 
 	for _, eventType := range eventTypes {
-		events := ChunkEventRangeQuery(itemsPerRequest, startBlockheight, backOfHeight, eventType)
+		events := ChunkEventRangeQuery(itemsPerRequest, startBlockheight, BlockHeight, eventType)
 		chunksEvents = append(chunksEvents, events...)
 	}
 
 	addrs, restartDataLoader := fa.GetEventAddresses(flowUrls, chunksEvents)
-	return unique(addrs), backOfHeight, restartDataLoader
+	return addrs, BlockHeight, restartDataLoader
 }
 
 func ChunkEventRangeQuery(itemsPerRequest int, lowBlockHeight, highBlockHeight uint64, eventName string) []client.EventRangeQuery {
@@ -97,22 +99,8 @@ func ChunkEventRangeQuery(itemsPerRequest int, lowBlockHeight, highBlockHeight u
 	return chunks
 }
 
-type AccountKeyAdded struct {
-	Type  string `json:"type"`
-	Value struct {
-		ID     string `json:"id"`
-		Fields []struct {
-			Name  string `json:"name"`
-			Value struct {
-				Type  string `json:"type"`
-				Value string `json:"value"`
-			} `json:"value"`
-		} `json:"fields"`
-	} `json:"value"`
-}
-
-func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) ([]flow.Address, bool) {
-	var addresses []flow.Address
+func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) (PublicKeyActions, bool) {
+	var publicKeyActions PublicKeyActions
 	restartBulkLoad := false
 	events, err := client.GetEventsForHeightRange(context, query)
 	if err != nil {
@@ -122,35 +110,91 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 			eventsRetry, errRetry := client.GetEventsForHeightRange(context, q)
 			if errRetry != nil {
 				log.Error().Err(errRetry).Msg("retrying get events failed")
-				return addresses, true
+				return publicKeyActions, true
 			}
 			events = append(events, eventsRetry...)
 		}
 	}
 	for _, event := range events {
 		for _, evt := range event.Events {
-			var data AccountKeyAdded
-			json.Unmarshal([]byte(evt.Payload), &data)
-			for _, field := range data.Value.Fields {
-				if field.Name == "address" {
-					addresses = append(addresses, flow.HexToAddress(field.Value.Value))
+			var pkAddr PublicKey
+			payload, err := jsoncdc.Decode(evt.Payload)
+			if err != nil {
+				log.Warn().Msgf("Could not decode payload %v %v", evt.Type, err.Error())
+				continue
+			}
+			addEvent, ok := payload.(cadence.Event)
+			if !ok {
+				log.Warn().Msgf("could not decode event payload")
+				continue
+			}
+			// field 0 is account address
+			address := addEvent.Fields[0].String()
+			// field 1 is public key
+			pkValues, isOld := addEvent.Fields[1].(cadence.Array)
+			if isOld {
+				// old add account key format
+				var dError error
+				pkAddr, dError = CreatePublicKeyFromEvent(pkValues, address)
+				if dError != nil {
+					continue
 				}
+				if evt.Type == "flow.AccountKeyRemoved" {
+					publicKeyActions.removes = append(publicKeyActions.removes, pkAddr)
+					// add address to addresses collection to get reloaded after address is removed from public key
+					publicKeyActions.addresses = append(publicKeyActions.addresses, address)
+				} else {
+					publicKeyActions.adds = append(publicKeyActions.adds, pkAddr)
+				}
+			} else {
+				// process new add account key format
+				log.Debug().Msgf("new event format, reload account %v", address)
+				publicKeyActions.addresses = append(publicKeyActions.addresses, address)
 			}
 		}
 	}
-	return addresses, restartBulkLoad
+	log.Debug().Msgf("add addrs %v, remove addrs %v", len(publicKeyActions.adds), len(publicKeyActions.removes))
+	return publicKeyActions, restartBulkLoad
 }
 
-func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.EventRangeQuery) ([]flow.Address, bool) {
-	var allAddresses []flow.Address
+func CreatePublicKeyFromEvent(cadenceArr cadence.Array, address string) (PublicKey, error) {
+	pkBytes := ByteArrayValueToByteSlice(cadenceArr)
+	publicKeyValue, decodeErr := flow.DecodeAccountKey(pkBytes)
+	if decodeErr != nil {
+		log.Warn().Msgf("could not decode public key %v", decodeErr.Error())
+		return PublicKey{}, decodeErr
+	}
+	pk := Trim0x(publicKeyValue.PublicKey.String())
+	pkAddr := PublicKey{pk, address}
+	return pkAddr, nil
+}
+
+func ByteArrayValueToByteSlice(array cadence.Array) (result []byte) {
+	result = make([]byte, 0, len(array.Values))
+	for _, value := range array.Values {
+		result = append(result, byte(value.(cadence.UInt8)))
+	}
+	return result
+}
+
+func Trim0x(hexString string) string {
+	prefix := hexString[:2]
+	if prefix == "0x" {
+		return hexString[2:]
+	}
+	return hexString
+}
+
+func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.EventRangeQuery) ([]PublicKeyActions, bool) {
+	var allPkAddrs []PublicKeyActions
 	restartBulkLoad := false
 	var wg sync.WaitGroup
 	eventRangeChan := make(chan client.EventRangeQuery)
-	addressChan := make(chan []flow.Address)
+	publicKeyChan := make(chan PublicKeyActions)
 
 	go func() {
-		for address := range addressChan {
-			allAddresses = append(allAddresses, address...)
+		for actions := range publicKeyChan {
+			allPkAddrs = append(allPkAddrs, actions)
 		}
 	}()
 
@@ -175,7 +219,8 @@ func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.Eve
 				if !restart {
 					restartBulkLoad = restart
 				}
-				addressChan <- addrs
+				publicKeyChan <- addrs
+				time.Sleep(500 * time.Millisecond) // give time for channel to process
 				wg.Done()
 			}
 		}()
@@ -187,26 +232,14 @@ func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.Eve
 
 	wg.Wait()
 
-	close(addressChan)
+	close(publicKeyChan)
 	close(eventRangeChan)
 
-	return allAddresses, restartBulkLoad
+	return allPkAddrs, restartBulkLoad
 }
 
 func splitQuery(query client.EventRangeQuery) []client.EventRangeQuery {
 	rangef := float64(query.EndHeight - query.StartHeight)
 	itemsPerRequest := math.Ceil(rangef / 2)
 	return ChunkEventRangeQuery(int(itemsPerRequest), query.StartHeight, query.EndHeight, query.Type)
-}
-
-func unique(addresses []flow.Address) []flow.Address {
-	keys := make(map[flow.Address]bool)
-	list := []flow.Address{}
-	for _, entry := range addresses {
-		if _, value := keys[entry]; !value {
-			keys[entry] = true
-			list = append(list, entry)
-		}
-	}
-	return list
 }
