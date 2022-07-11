@@ -34,6 +34,9 @@ func (rest *Rest) Start() {
 
 func (rest *Rest) getStatus(w http.ResponseWriter, r *http.Request) {
 	block, err := rest.flowClient.GetCurrentBlockHeight()
+	if err != nil {
+		log.Error().Err(err).Msg("Could not get current block height")
+	}
 	stats := rest.DB.Stats()
 	stats.CurrentBlock = int(block)
 	if err != nil {

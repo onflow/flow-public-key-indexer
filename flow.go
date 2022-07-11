@@ -50,15 +50,15 @@ func (fa *FlowAdapter) GetCurrentBlockHeight() (uint64, error) {
 	return block.Height, nil
 }
 
-func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]PublicKeyActions, uint64, bool) {
+func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]PublicKeyActions, uint64, bool, error) {
 	itemsPerRequest := 245 // access node can only handel 250
 	eventTypes := []string{"flow.AccountKeyAdded", "flow.AccountKeyRemoved"}
 	var addrActions []PublicKeyActions
 	restartBulkLoad := true
 	currentHeight, err := fa.GetCurrentBlockHeight()
 	if err != nil {
-		log.Error().Err(err).Msg("Could not get current block height")
-		return addrActions, currentHeight, restartBulkLoad
+		log.Warn().Err(err).Msg("Could not get current block height")
+		return addrActions, currentHeight, restartBulkLoad, err
 	}
 
 	// backing off a few blocks to allow for buffer
@@ -72,7 +72,7 @@ func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlock
 	}
 
 	addrs, restartDataLoader := fa.GetEventAddresses(flowUrls, chunksEvents)
-	return addrs, BlockHeight, restartDataLoader
+	return addrs, BlockHeight, restartDataLoader, nil
 }
 
 func ChunkEventRangeQuery(itemsPerRequest int, lowBlockHeight, highBlockHeight uint64, eventName string) []client.EventRangeQuery {

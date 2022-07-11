@@ -128,9 +128,11 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) erro
 }
 
 func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLoading bool, blockHeight uint64) (int, bool) {
-	pkAddrActions, currBlockHeight, restart := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
+	pkAddrActions, currBlockHeight, restart, err := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
+	if err != nil {
+		return 0, restart
+	}
 	s.DB.updateLoadingBlockHeight(currBlockHeight)
-
 	var pkAddrs []PublicKey
 	var addresses []flow.Address
 	// filter out empty Public keys and send account addresses to get processed

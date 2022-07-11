@@ -59,7 +59,10 @@ func (a *App) loadPublicKeyData() {
 
 	// note: get current block pass into incremetal
 	// testing
-	currentBlock, _ := a.flowClient.GetCurrentBlockHeight()
+	currentBlock, err := a.flowClient.GetCurrentBlockHeight()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Could not get current block height")
+	}
 	a.DB.updateLoadingBlockHeight(currentBlock)
 	updatedBlkHeight, _ := a.DB.GetUpdatedBlockHeight()
 	isTooFarBehind := currentBlock-updatedBlkHeight > uint64(a.p.MaxBlockRange)
@@ -95,7 +98,10 @@ func (a *App) loadPublicKeyData() {
 func (a *App) bulkLoad(addressChan chan []flow.Address) {
 	start := time.Now()
 	log.Info().Msg("Start Bulk Key Load")
-	currentBlock, _ := a.flowClient.GetCurrentBlockHeight()
+	currentBlock, err := a.flowClient.GetCurrentBlockHeight()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Could not get current block height")
+	}
 	// sets starting block height for incremental loader
 	a.DB.updateLoadingBlockHeight(currentBlock)
 
@@ -125,9 +131,8 @@ func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange in
 	updatedToBlock, _ := a.DB.GetUpdatedBlockHeight()
 	currentBlock, err := a.flowClient.GetCurrentBlockHeight()
 	if err != nil {
-		log.Warn().Err(err).Msg("could not get current block height from api")
+		log.Fatal().Err(err).Msg("Could not get current block height")
 	}
-
 	// initial bulk loading is going on
 	isLoading := updatedToBlock == 0
 
