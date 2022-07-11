@@ -57,7 +57,7 @@ func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlock
 	restartBulkLoad := true
 	currentHeight, err := fa.GetCurrentBlockHeight()
 	if err != nil {
-		log.Warn().Err(err).Msg("Could not get current block height")
+		log.Error().Err(err).Msg("Could not get current block height")
 		return addrActions, currentHeight, restartBulkLoad, err
 	}
 
