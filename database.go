@@ -39,9 +39,13 @@ func NewDatabase(dbPath string, silence bool, purgeOnStart bool) *Database {
 		c.Logger = nil // ignore logs from badgerdb
 	}
 	db, err := badger.Open(c)
+
 	if err != nil {
-		log.Error().Msg("Badger db could not be opened")
+		log.Error().Err(err).Msg("Badger db could not be opened")
 	}
+
+	defer db.Close()
+
 	d.db = db
 	if purgeOnStart {
 		d.ClearAllData()
