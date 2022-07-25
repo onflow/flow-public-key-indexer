@@ -47,7 +47,8 @@ func (a *App) Initialize(params Params) {
 }
 
 func (a *App) Run() {
-
+	// if anything happens close the db
+	defer a.DB.db.Close()
 	go func() { a.loadPublicKeyData() }()
 
 	a.rest.Start()

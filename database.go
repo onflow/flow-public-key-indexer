@@ -44,8 +44,6 @@ func NewDatabase(dbPath string, silence bool, purgeOnStart bool) *Database {
 		log.Error().Err(err).Msg("Badger db could not be opened")
 	}
 
-	defer db.Close()
-
 	d.db = db
 	if purgeOnStart {
 		d.ClearAllData()
