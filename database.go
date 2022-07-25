@@ -56,6 +56,11 @@ func (d *Database) CleanUp() error {
 	return d.db.RunValueLogGC(0.5)
 }
 
+func (d *Database) Close() error {
+	log.Info().Msg("Closing db")
+	return d.db.Close()
+}
+
 func (d *Database) UpdatePublicKeys(pkis []PublicKeyIndexer) {
 	maxRetries := 5
 	for _, pki := range pkis {
@@ -254,6 +259,7 @@ func (d *Database) UpdateTotalPublicKeyCount() {
 		}
 		return nil
 	})
+	log.Info().Msgf("total key count", uint64(itemCount))
 	updateBlockInfo(d.db, uint64(itemCount), TotalPublicKeyCount)
 }
 
