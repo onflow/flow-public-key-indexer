@@ -40,6 +40,7 @@ type AddressProvider struct {
 }
 
 const endOfAccountsError = "storage used is not initialized or not initialized correctly"
+const failedToGetStoragedUsed = "get storage used failed: failed to get storage used"
 
 const accountStorageUsageScript = `
  pub fun main(address: Address): UInt64 {
@@ -85,6 +86,9 @@ func InitAddressProvider(
 			return true, nil
 		}
 		if strings.Contains(err.Error(), endOfAccountsError) {
+			return false, nil
+		}
+		if strings.Contains(err.Error(), failedToGetStoragedUsed) {
 			return false, nil
 		}
 		return false, err
