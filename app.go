@@ -18,7 +18,6 @@ type Params struct {
 	FlowUrl3            string
 	FlowUrl4            string
 	AllFlowUrls         []string `ignored:"true"`
-	DbPath              string   `default:"./db"`
 	ChainId             string   `default:"flow-mainnet"`
 	MaxAcctKeys         int      `default:"1000"`
 	BatchSize           int      `default:"100"`
@@ -28,7 +27,6 @@ type Params struct {
 	BlockPolIntervalSec int      `default:"180"`
 	MaxBlockRange       int      `default:"600"`
 	FetchSlowDownMs     int      `default:"50"`
-	SilenceBadgerdb     bool     `default:"true"`
 	PurgeOnStart        bool     `default:"false"`
 	EnableSyncData      bool     `default:"true"`
 

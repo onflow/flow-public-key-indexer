@@ -21,9 +21,6 @@ A observer service for indexing flow Accounts public keys and REST service that 
 `KEYIDX_FLOWURL4` default: none
 <br>Flow Url: Access node endpoint</br>
 
-`KEYIDX_DBPATH` default: "./db"
-<br>db path: badger db directory where all db files live </br>
-
 `KEYIDX_CHAINID` default: "flow-mainnet"
 <br>Chain Id: target blockchain, valid values are "flow-testnet" and "flow-mainnet". Needs to match up with Flor Url</br>
 
@@ -48,9 +45,6 @@ A observer service for indexing flow Accounts public keys and REST service that 
 `KEYIDX_MAXBLOCKRANGE` default: 600
 <br>Max Block Range: number of blocks that will trigger a bulk load if services falls behind. If this happens try increasing `Batch Size` parameter to a safe amount and not to trigger max computation error when cadence script is executed. Also, the server can only query 600 blocks</br>
 
-`KEYIDX_SILENCEBADGERDB` default: true
-<br>Badger db has log output that is not informative, the user can choose to see the output if this is changed to false</br>
-
 `KEYIDX_PURGEONSTART` default: false
 <br>When changing the data structure or want to clear the database and start from scratch chnage this variable to true</br>
 
@@ -62,6 +56,10 @@ Since this is a golang service there are many ways to run it. Below are two ways
 Configuration: Run docker in default 10 gig memory size. Reducing the running memory size reduces performance, the lowest is 6 gig, bulk sync and public key query responses are reasonable compared to running with more memory.<br>
 Create a docker container<br>
 ```docker build -t key-indexer .``` <br>
+
+``` need to configure to use postgresql ```
+
+
 This service stores public key data and needs persistent storage <br>
 Run the docker and map the port and use a directory on disk<br>
 Notice that environmental variables can be passed in. See variables above<br>
