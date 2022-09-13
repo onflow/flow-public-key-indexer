@@ -1,10 +1,12 @@
 package main
 
 import (
+	"example/flow-key-indexer/pkg/pg"
 	"strings"
 	"time"
 
 	"github.com/onflow/flow-go-sdk"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -28,9 +30,25 @@ type Params struct {
 	FetchSlowDownMs     int      `default:"50"`
 	SilenceBadgerdb     bool     `default:"true"`
 	PurgeOnStart        bool     `default:"false"`
+	EnableSyncData      bool     `default:"true"`
+
+	PostgreSQLHost              string        `default:"localhost"`
+	PostgreSQLPort              uint16        `default:"5432"`
+	PostgreSQLUsername          string        `default:"postgres"`
+	PostgreSQLPassword          string        `required:"false"`
+	PostgreSQLDatabase          string        `required:"true"`
+	PostgreSQLSSL               bool          `default:"true"`
+	PostgreSQLLogQueries        bool          `default:"false"`
+	PostgreSQLSetLogger         bool          `default:"false"`
+	PostgreSQLRetryNumTimes     uint16        `default:"30"`
+	PostgreSQLRetrySleepTime    time.Duration `default:"1s"`
+	PostgreSQLPoolSize          int           `required:"true"`
+	PostgresLoggerPrefix        string        `required:"true"`
+	PostgresPrometheusSubSystem string        `required:"true"`
 }
+
 type App struct {
-	DB         *Database
+	DB         *pg.Store
 	flowClient *FlowAdapter
 	p          Params
 	dataLoader *DataLoader
@@ -40,7 +58,15 @@ type App struct {
 func (a *App) Initialize(params Params) {
 	params.AllFlowUrls = setAllFlowUrls(params)
 	a.p = params
-	a.DB = NewDatabase(params.DbPath, params.SilenceBadgerdb, params.PurgeOnStart)
+	dbConfig := getPostgresConfig(params, log.Logger)
+
+	db := pg.NewStore(dbConfig, log.Logger)
+	err := db.Start(params.PurgeOnStart)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Database could not be found or created")
+	}
+	a.DB = db
+
 	a.flowClient = NewFlowClient(strings.TrimSpace(a.p.FlowUrl1))
 	a.dataLoader = NewDataLoader(*a.DB, *a.flowClient, params)
 	a.rest = NewRest(*a.DB, *a.flowClient, params)
@@ -48,8 +74,11 @@ func (a *App) Initialize(params Params) {
 
 func (a *App) Run() {
 	// if anything happens close the db
-	defer a.DB.Close()
-	go func() { a.loadPublicKeyData() }()
+	defer a.DB.Stop()
+	if a.p.EnableSyncData {
+		log.Info().Msgf("Data Sync service is enabled")
+		go func() { a.loadPublicKeyData() }()
+	}
 
 	a.rest.Start()
 }
@@ -61,10 +90,11 @@ func (a *App) loadPublicKeyData() {
 	// note: get current block pass into incremetal
 	// testing
 	currentBlock, err := a.flowClient.GetCurrentBlockHeight()
+	log.Debug().Msgf("Current block from server %v", currentBlock)
 	if err != nil {
 		log.Error().Err(err).Msg("Could not get current block height")
 	}
-	a.DB.updateLoadingBlockHeight(currentBlock)
+	a.DB.UpdateLoadingBlockHeight(currentBlock)
 	updatedBlkHeight, _ := a.DB.GetUpdatedBlockHeight()
 	isTooFarBehind := currentBlock-updatedBlkHeight > uint64(a.p.MaxBlockRange)
 
@@ -104,7 +134,7 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 		log.Error().Err(err).Msg("Could not get current block height")
 	}
 	// sets starting block height for incremental loader
-	a.DB.updateLoadingBlockHeight(currentBlock)
+	a.DB.UpdateLoadingBlockHeight(currentBlock)
 
 	errLoad := a.dataLoader.RunAllAddressesLoader(addressChan)
 	//errLoad := testRunAddresses(addressChan)
@@ -156,9 +186,7 @@ func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange in
 	addressCount, restart := a.dataLoader.RunIncAddressesLoader(addressChan, isLoading, startLoadingFrom)
 	duration := time.Since(start)
 	log.Info().Msgf("Inc Load, %f sec, (%d blk) curr: %d (%d addr)", duration.Seconds(), loadingBlockRange, currentBlock, addressCount)
-	if addressCount > 0 {
-		go func() { a.DB.UpdateTotalPublicKeyCount() }()
-	}
+
 	if restart && !isLoading {
 		log.Warn().Msg("Force restart bulk load")
 		go func() { a.bulkLoad(addressChan) }()
@@ -180,4 +208,49 @@ func processUrl(url string, collection []string) []string {
 		collection = append(collection, newUrl)
 	}
 	return collection
+}
+
+func getPostgresConfig(conf Params, logger zerolog.Logger) pg.Config {
+	return pg.Config{
+		ConnectPGOptions: pg.ConnectPGOptions{
+			ConnectionString: getPostgresConnectionString(conf),
+			RetrySleepTime:   conf.PostgreSQLRetrySleepTime,
+			RetryNumTimes:    conf.PostgreSQLRetryNumTimes,
+			TLSConfig:        nil,
+			ConnErrorLogger: func(
+				numTries int,
+				duration time.Duration,
+				host string,
+				db string,
+				user string,
+				ssl bool,
+				err error,
+			) {
+				// warn is probably a little strong here
+				logger.Info().
+					Int("numTries", numTries).
+					Dur("duration", duration).
+					Str("host", host).
+					Str("db", db).
+					Str("user", user).
+					Bool("ssl", ssl).
+					Err(err).
+					Msg("connection failed")
+			},
+		},
+		PGApplicationName: "public-key-indexer",
+		PGLoggerPrefix:    conf.PostgresLoggerPrefix,
+		PGPoolSize:        conf.PostgreSQLPoolSize,
+	}
+}
+
+func getPostgresConnectionString(conf Params) string {
+	return pg.ToURL(
+		int(conf.PostgreSQLPort),
+		conf.PostgreSQLSSL,
+		conf.PostgreSQLUsername,
+		conf.PostgreSQLPassword,
+		conf.PostgreSQLDatabase,
+		conf.PostgreSQLHost,
+	)
 }

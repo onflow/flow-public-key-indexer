@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"example/flow-key-indexer/pkg/pg"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -9,12 +10,12 @@ import (
 )
 
 type Rest struct {
-	DB         Database
+	DB         pg.Store
 	flowClient FlowAdapter
 	config     Params
 }
 
-func NewRest(DB Database, fa FlowAdapter, p Params) *Rest {
+func NewRest(DB pg.Store, fa FlowAdapter, p Params) *Rest {
 	r := Rest{}
 	r.DB = DB
 	r.flowClient = fa
@@ -49,7 +50,7 @@ func (rest *Rest) getKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	params := mux.Vars(r) // get params
 	publicKey := params["id"]
-	value, err := rest.DB.GetPublicKey(publicKey)
+	value, err := rest.DB.GetAccountsByPublicKey(publicKey)
 
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, err.Error())

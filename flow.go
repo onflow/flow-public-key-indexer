@@ -117,7 +117,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 	}
 	for _, event := range events {
 		for _, evt := range event.Events {
-			var pkAddr PublicKey
+			var pkAddr PublicKeyEvent
 			payload, err := jsoncdc.Decode(evt.Payload)
 			if err != nil {
 				log.Warn().Msgf("Could not decode payload %v %v", evt.Type, err.Error())
@@ -141,31 +141,24 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 				}
 				if evt.Type == "flow.AccountKeyRemoved" {
 					publicKeyActions.removes = append(publicKeyActions.removes, pkAddr)
-					// add address to addresses collection to get reloaded after address is removed from public key
-					publicKeyActions.addresses = append(publicKeyActions.addresses, address)
-				} else {
-					publicKeyActions.adds = append(publicKeyActions.adds, pkAddr)
 				}
-			} else {
-				// process new add account key format
-				log.Debug().Msgf("new event format, reload account %v", address)
-				publicKeyActions.addresses = append(publicKeyActions.addresses, address)
 			}
+			publicKeyActions.addresses = append(publicKeyActions.addresses, address)
 		}
 	}
-	log.Debug().Msgf("add addrs %v, remove addrs %v", len(publicKeyActions.adds), len(publicKeyActions.removes))
+	log.Debug().Msgf("total addrs %v, remove addrs %v", len(publicKeyActions.addresses), len(publicKeyActions.removes))
 	return publicKeyActions, restartBulkLoad
 }
 
-func CreatePublicKeyFromEvent(cadenceArr cadence.Array, address string) (PublicKey, error) {
+func CreatePublicKeyFromEvent(cadenceArr cadence.Array, address string) (PublicKeyEvent, error) {
 	pkBytes := ByteArrayValueToByteSlice(cadenceArr)
 	publicKeyValue, decodeErr := flow.DecodeAccountKey(pkBytes)
 	if decodeErr != nil {
 		log.Warn().Msgf("could not decode public key %v", decodeErr.Error())
-		return PublicKey{}, decodeErr
+		return PublicKeyEvent{}, decodeErr
 	}
 	pk := Trim0x(publicKeyValue.PublicKey.String())
-	pkAddr := PublicKey{pk, address}
+	pkAddr := PublicKeyEvent{pk, address}
 	return pkAddr, nil
 }
 

@@ -21,6 +21,9 @@ package main
 import (
 	"context"
 	_ "embed"
+	"example/flow-key-indexer/model"
+	"example/flow-key-indexer/pkg/pg"
+	"math/big"
 	"time"
 
 	"github.com/onflow/cadence"
@@ -29,46 +32,62 @@ import (
 )
 
 type DataLoader struct {
-	DB             Database
+	DB             pg.Store
 	config         Params
 	fa             FlowAdapter
 	incAddressChan [][]flow.Address
 }
 
 type PublicKeyActions struct {
-	adds      []PublicKey
-	removes   []PublicKey
+	removes   []PublicKeyEvent
 	addresses []string
 }
 
-type PublicKey struct {
+type PublicKeyEvent struct {
 	publicKey string
 	account   string
 }
 
-//go:embed get_pub_keys.cdc
+type PublicKey struct {
+	hashAlgorithm      uint8
+	isRevoked          bool
+	weight             uint64
+	keyIndex           *big.Int
+	publicKey          string
+	signatureAlgorithm uint8
+	account            string
+}
+
+//go:embed cadence/get_keys.cdc
 var GetAccountKeys string
 
-type GetAccountKeysHandler func(keys []PublicKey, height uint64, err error)
+type GetAccountKeysHandler func(keys []model.PublicKeyAccountIndexer, height uint64, err error)
 
 func (s *DataLoader) NewGetAccountKeysHandler(handler GetAccountKeysHandler) func(value cadence.Value, height uint64) {
 	return func(value cadence.Value, height uint64) {
-		if value == nil {
-			log.Warn().Msgf("cadence value is nil, nothing to process")
-			return
-		}
-		allAccountsKeys := []PublicKey{}
+		allAccountsKeys := []model.PublicKeyAccountIndexer{}
 		for _, allKeys := range value.(cadence.Dictionary).Pairs {
 			address := allKeys.Key.(cadence.Address)
 			counter := 0
-			keys := []PublicKey{}
-			for _, nameCodePair := range allKeys.Value.(cadence.Array).Values {
-				rawStruct := nameCodePair.(cadence.String)
+			keys := []model.PublicKeyAccountIndexer{}
+			for _, nameCodePair := range allKeys.Value.(cadence.Dictionary).Pairs {
+				rawStruct := nameCodePair.Value.(cadence.Struct)
 				data := PublicKey{
-					publicKey: rawStruct.ToGoValue().(string),
-					account:   address.String(),
+					hashAlgorithm:      rawStruct.Fields[0].ToGoValue().(uint8),
+					isRevoked:          rawStruct.Fields[1].ToGoValue().(bool),
+					weight:             rawStruct.Fields[2].ToGoValue().(uint64),
+					publicKey:          rawStruct.Fields[3].ToGoValue().(string),
+					keyIndex:           rawStruct.Fields[4].ToGoValue().(*big.Int),
+					signatureAlgorithm: rawStruct.Fields[5].ToGoValue().(uint8),
+					account:            address.String(),
 				}
-				keys = append(keys, data)
+				item := model.PublicKeyAccountIndexer{
+					Account:   data.account,
+					KeyId:     int(data.keyIndex.Int64()),
+					PublicKey: data.publicKey,
+					Weight:    int(data.weight / 100000000),
+				}
+				keys = append(keys, item)
 				counter = counter + 1
 			}
 			allAccountsKeys = append(allAccountsKeys, keys...)
@@ -81,7 +100,7 @@ func (s *DataLoader) NewGetAccountKeysHandler(handler GetAccountKeysHandler) fun
 	}
 }
 
-func NewDataLoader(DB Database, fa FlowAdapter, p Params) *DataLoader {
+func NewDataLoader(DB pg.Store, fa FlowAdapter, p Params) *DataLoader {
 	s := DataLoader{}
 	s.incAddressChan = [][]flow.Address{}
 	s.DB = DB
@@ -120,10 +139,10 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) erro
 	config.maxAcctKeys = s.config.MaxAcctKeys
 	config.Pause = time.Duration(s.config.FetchSlowDownMs * int(time.Millisecond))
 
-	s.DB.updateUpdatedBlockHeight(0) // indicates bulk loading
+	s.DB.UpdateUpdatedBlockHeight(0) // indicates bulk loading
 	height, err := GetAllAddresses(context.Background(), log.Logger, config, addressChan)
 	// save height for next load time
-	s.DB.updateUpdatedBlockHeight(height)
+	s.DB.UpdateUpdatedBlockHeight(height)
 	return err
 }
 
@@ -132,14 +151,13 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLo
 	if err != nil {
 		return 0, restart
 	}
-	s.DB.updateLoadingBlockHeight(currBlockHeight)
-	var pkAddrs []PublicKey
+
+	s.DB.UpdateLoadingBlockHeight(currBlockHeight)
 	var addresses []flow.Address
 	// filter out empty Public keys and send account addresses to get processed
 	for _, addrPkAction := range pkAddrActions {
-		pkAddrs = append(pkAddrs, addrPkAction.adds...)
 		for _, address := range addrPkAction.addresses {
-			// reload these addresses for removals and cuz of new AccountKeyAdded event format
+			// reload these addresses to get all account data
 			addresses = append(addresses, flow.HexToAddress(address))
 		}
 		for _, removal := range addrPkAction.removes {
@@ -155,57 +173,22 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLo
 		addressChan <- unique(addresses)
 	}
 
-	if (len(pkAddrs)) > 0 {
-		s.ProcessAddressDataAdditions(pkAddrs, currBlockHeight, nil)
-	}
-
-	if updatedBlock, updatedErr := s.DB.GetUpdatedBlockHeight(); updatedErr == nil {
-		// check that bulk loading isn't occuring
-		if updatedBlock != 0 {
-			s.DB.CleanUp()
-		}
-	}
-
 	updatedToBlock, _ := s.DB.GetUpdatedBlockHeight()
 	if updatedToBlock != 0 {
 		// bulk loading is done, update loaded block height
-		s.DB.updateUpdatedBlockHeight(currBlockHeight)
+		s.DB.UpdateUpdatedBlockHeight(currBlockHeight)
 	}
-	return len(pkAddrs), restart
+	return len(addresses), restart
 }
 
-func (s *DataLoader) ProcessAddressDataAdditions(keys []PublicKey, height uint64, err error) {
+func (s *DataLoader) ProcessAddressDataAdditions(keys []model.PublicKeyAccountIndexer, height uint64, err error) {
 	if err != nil {
 		log.Err(err).Msgf("failed to get account key info")
 		return
 	}
 
-	pkis := convertPublicKey(keys, height)
 	// send to DB
-	s.DB.UpdatePublicKeys(pkis)
-}
-
-func convertPublicKey(pks []PublicKey, height uint64) []PublicKeyIndexer {
-	allPki := map[string]PublicKeyIndexer{}
-	for _, publicKey := range pks {
-		newAcct := publicKey.account
-		if pki, found := allPki[publicKey.publicKey]; found {
-			if !contains(pki.Accounts, newAcct) {
-				pki.Accounts = append(pki.Accounts, newAcct)
-				allPki[pki.PublicKey] = pki
-			}
-		} else {
-			newPki := PublicKeyIndexer{}
-			newPki.Accounts = []string{newAcct}
-			newPki.PublicKey = publicKey.publicKey
-			allPki[publicKey.publicKey] = newPki
-		}
-	}
-	values := make([]PublicKeyIndexer, 0, len(allPki))
-	for _, pi := range allPki {
-		values = append(values, pi)
-	}
-	return values
+	s.DB.InsertPublicKeyAccounts(keys)
 }
 
 func unique(addresses []flow.Address) []flow.Address {
