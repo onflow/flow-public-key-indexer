@@ -178,6 +178,8 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLo
 		// bulk loading is done, update loaded block height
 		s.DB.UpdateUpdatedBlockHeight(currBlockHeight)
 	}
+	// cache distict count for quick 'status' response
+	s.DB.UpdateDistinctCount()
 	return len(addresses), restart
 }
 

@@ -26,9 +26,9 @@ type PublicKeyBlockHeight struct {
 }
 
 type PublicKeyStatus struct {
-	Count          int    `json:"publicKeyCount"`
-	CurrentBlock   int    `json:"currentBlockHeight"`
-	UpdatedToBlock uint64 `json:"updatedToBlockHeight"`
-	PendingToBlock uint64 `json:"pendingLoadBlockHeight"`
-	IsBulkLoading  bool   `json:"isBulkLoading"`
+	Count          int  `json:"publicKeyCount"`
+	CurrentBlock   int  `json:"currentBlockHeight"`
+	UpdatedToBlock int  `json:"updatedToBlockHeight"`
+	PendingToBlock int  `json:"pendingLoadBlockHeight"`
+	IsBulkLoading  bool `json:"isBulkLoading"`
 }

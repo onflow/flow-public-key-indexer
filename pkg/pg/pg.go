@@ -72,9 +72,10 @@ func (d *Database) InitDatabase(purgeOnStart bool) error {
 		PRIMARY KEY(publicKey, account, keyId))`
 	createStatsTable := `CREATE TABLE IF NOT EXISTS publickeyindexer_stats(
 		pendingBlockheight int,
-		updatedBlockheight int
+		updatedBlockheight int,
+		uniquePublicKeys int
 		)`
-	insertStatsTable := `INSERT INTO publickeyindexer_stats select 0,0 from publickeyindexer_stats having count(*) < 1;`
+	insertStatsTable := `INSERT INTO publickeyindexer_stats select 0,0,0 from publickeyindexer_stats having count(*) < 1;`
 	deleteIndex := `DROP INDEX IF EXISTS public_key_at_brin_idx ON keyIndexer`
 	deleteTable := `DROP TABLE IF EXISTS publickeyindexer`
 	deleteTableStats := `DROP TABLE IF EXISTS publickeyindexer_stats`

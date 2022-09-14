@@ -46,15 +46,13 @@ func (s *Store) Stop() {
 }
 
 func (s Store) Stats() model.PublicKeyStatus {
-	count, _ := s.GetCount()
-	updated, _ := s.GetUpdatedBlockHeight()
-	pending, _ := s.GetLoadingBlockHeight()
-	isBulkLoading := updated == uint64(0)
+	status, _ := s.GetPublicKeyStats()
+	isBulkLoading := uint64(status.UpdatedToBlock) == uint64(0)
 
 	return model.PublicKeyStatus{
-		Count:          count,
-		UpdatedToBlock: updated,
-		PendingToBlock: pending,
+		Count:          status.Count,
+		UpdatedToBlock: status.UpdatedToBlock,
+		PendingToBlock: status.PendingToBlock,
 		IsBulkLoading:  isBulkLoading,
 	}
 }
@@ -109,6 +107,33 @@ func (s Store) GetUpdatedBlockHeight() (uint64, error) {
 	}
 
 	return blockNumber, nil
+}
+
+func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
+	query := "SELECT uniquePublicKeys, updatedBlockheight, pendingBlockheight FROM publickeyindexer_stats;"
+	var uniquePublicKeys int
+	var updatedBlockheight int
+	var pendingBlockheight int
+
+	_, err := s.db.Model((*model.PublicKeyStatus)(nil)).QueryOne(pg.Scan(&uniquePublicKeys, &updatedBlockheight, &pendingBlockheight), query)
+	if err != nil {
+		s.logger.Error().Err(err).Msgf("get status %v", uniquePublicKeys)
+	}
+	status := model.PublicKeyStatus{
+		Count:          uniquePublicKeys,
+		UpdatedToBlock: updatedBlockheight,
+		PendingToBlock: pendingBlockheight,
+	}
+	return status, nil
+}
+
+func (s Store) UpdateDistinctCount() {
+	cnt, _ := s.GetCount()
+	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET uniquePublicKeys = %v`, cnt)
+	_, err := s.db.Exec(sqlStatement)
+	if err != nil {
+		s.logger.Error().Err(err).Msgf("could not update unique public keys %v", cnt)
+	}
 }
 
 func (s Store) GetCount() (int, error) {
