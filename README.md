@@ -48,6 +48,24 @@ A observer service for indexing flow Accounts public keys and REST service that 
 `KEYIDX_PURGEONSTART` default: false
 <br>When changing the data structure or want to clear the database and start from scratch chnage this variable to true</br>
 
+`KEYIDX_ENABLESYNCDATA` default: true
+<br>It's possible to run this service only as rest service and not sync, this makes it easy to have many instances that serve up data but only one that syncs</br>
+
+## Postgresql configurations
+`KEYIDX_POSTGRESQLHOST` default: "localhost"
+`KEYIDX_POSTGRESQLPORT` default: 5432
+`KEYIDX_POSTGRESQLUSERNAME` default: "postgres"
+`KEYIDX_POSTGRESQLPASSWORD` not required, no default
+`KEYIDX_POSTGRESQLDATABASE` default: "keyindexer"
+`KEYIDX_POSTGRESQLSSL` default: true
+`KEYIDX_POSTGRESQLLOGQUERIES` default: false
+`KEYIDX_POSTGRESQLSETLOGGER` default: false
+`KEYIDX_POSTGRESQLRETRYNUMTIMES` default: 30
+`KEYIDX_POSTGRESQLRETRYSLEEPTIME` default: "1s"
+`KEYIDX_POSTGRESQLPOOLSIZE` default: 1
+`KEYIDX_POSTGRESLOGGERPREFIX` default: "keyindexer"
+`KEYIDX_POSTGRESPROMETHEUSSUBSYSTEM` default: "keyindexer"
+
 ## How to Run
 Since this is a golang service there are many ways to run it. Below are two ways to run this service
 ### Command line
@@ -58,12 +76,10 @@ Create a docker container<br>
 ```docker build -t key-indexer .``` <br>
 
 ``` need to configure to use postgresql ```
-
-
-This service stores public key data and needs persistent storage <br>
-Run the docker and map the port and use a directory on disk<br>
+This service stores public key data and needs persistent storage in postgresql<br>
+Run the docker and map the rest service port<br>
 Notice that environmental variables can be passed in. See variables above<br>
-```docker run -p 8888:8080 --env KEYIDX_DBPATH=/db -v /tmp:/db key-indexer``` <br>
+```docker run -p 8888:8080 --env KEYIDX_POSTGRESQLHOST=localhost``` <br>
 To see the logs of the container, get the container id <br>
 ```docker container ls``` <br>
 View the containers logs <br>
@@ -77,9 +93,8 @@ serves up json object</p>
 ```
 {
 	"publicKey": string  // public key string in base64
-	"accounts" : string array
+	"accounts" : array of {address: string, keyId: int, weight: int} 
 }
-
 ```
 
 * \<root\>/status
@@ -87,7 +102,7 @@ serves up json object</p>
 
 ```
 {
-"publicKeyCount": int         // total public keys indexed
+"publicKeyCount": int         // total unique public keys indexed
 "currentBlockHeight": int     // current block of access node
 "updatedToBlockHeight": int   // block data is updated against
 "pendingLoadBlockHeight": int // block height loading data from 

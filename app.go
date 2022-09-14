@@ -34,15 +34,15 @@ type Params struct {
 	PostgreSQLPort              uint16        `default:"5432"`
 	PostgreSQLUsername          string        `default:"postgres"`
 	PostgreSQLPassword          string        `required:"false"`
-	PostgreSQLDatabase          string        `required:"true"`
+	PostgreSQLDatabase          string        `default:"keyindexer"`
 	PostgreSQLSSL               bool          `default:"true"`
 	PostgreSQLLogQueries        bool          `default:"false"`
 	PostgreSQLSetLogger         bool          `default:"false"`
 	PostgreSQLRetryNumTimes     uint16        `default:"30"`
 	PostgreSQLRetrySleepTime    time.Duration `default:"1s"`
-	PostgreSQLPoolSize          int           `required:"true"`
-	PostgresLoggerPrefix        string        `required:"true"`
-	PostgresPrometheusSubSystem string        `required:"true"`
+	PostgreSQLPoolSize          int           `default:"1"`
+	PostgresLoggerPrefix        string        `default:"keyindexer"`
+	PostgresPrometheusSubSystem string        `default:"keyindexer"`
 }
 
 type App struct {
