@@ -27,7 +27,7 @@ func (rest *Rest) Start() {
 	// init router
 	r := mux.NewRouter()
 	r.HandleFunc("/key/{id}", rest.getKey).Methods("GET")
-	r.HandleFunc("/key/{id}", rest.getKeyOptions).Methods("OPTIONS")
+	r.HandleFunc("/key/{id}", rest.getKey).Methods("OPTIONS")
 	r.HandleFunc("/status", rest.getStatus).Methods("GET")
 	// handleRequests()
 	log.Info().Msgf("Serving on PORT %s", rest.config.Port)
@@ -45,13 +45,6 @@ func (rest *Rest) getStatus(w http.ResponseWriter, r *http.Request) {
 		stats.CurrentBlock = -1
 	}
 	respondWithJSON(w, http.StatusOK, stats)
-}
-
-func (rest *Rest) getKeyOptions(w http.ResponseWriter, r *http.Request) {
-	allowedHeaders := "Accept, Content-Type, Content-Length, Accept-Encoding, Authorization,X-CSRF-Token"
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET")
-	w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
 }
 
 func (rest *Rest) getKey(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +65,9 @@ func respondWithError(w http.ResponseWriter, code int, message string) {
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	response, _ := json.Marshal(payload)
+	allowedHeaders := "Accept, Content-Type, Content-Length, Accept-Encoding, Authorization,X-CSRF-Token"
+	w.Header().Set("Access-Control-Allow-Methods", "GET")
+	w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(code)
