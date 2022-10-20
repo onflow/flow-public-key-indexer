@@ -76,7 +76,7 @@ func (d *Database) InitDatabase(purgeOnStart bool) error {
 		uniquePublicKeys int
 		)`
 	insertStatsTable := `INSERT INTO publickeyindexer_stats select 0,0,0 from publickeyindexer_stats having count(*) < 1;`
-	deleteIndex := `DROP INDEX IF EXISTS public_key_at_brin_idx ON keyIndexer`
+	deleteIndex := `DROP INDEX IF EXISTS public_key_at_brin_idx`
 	deleteTable := `DROP TABLE IF EXISTS publickeyindexer`
 	deleteTableStats := `DROP TABLE IF EXISTS publickeyindexer_stats`
 
