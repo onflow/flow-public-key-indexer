@@ -1,8 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
 	logger "log"
 
 	"github.com/axiomzen/envconfig"
@@ -23,8 +21,6 @@ func main() {
 	if err != nil {
 		logger.Fatal(err.Error())
 	}
-	format, _ := json.MarshalIndent(p, "", "    ")
-	fmt.Printf("%+v\n", string(format))
 	lvl, err := zerolog.ParseLevel(p.LogLevel)
 	if err == nil {
 		zerolog.SetGlobalLevel(lvl)
