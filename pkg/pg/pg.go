@@ -16,20 +16,15 @@ import (
 // Database is a connection to a Postgres database.
 type Database struct {
 	*pg.DB
-	connectionString string
+	ops *pg.Options
 }
 
 // NewDatabase creates a new database connection.
 func NewDatabase(conf Config) (*Database, error) {
-	ops, err := parseURL(conf.ConnectionString)
-	if err != nil {
-		return nil, err
-	}
-
 	// useful when debugging long running queries
-	ops.ApplicationName = conf.PGApplicationName
+	conf.ConnectionOps.ApplicationName = conf.PGApplicationName
 
-	db, err := connectPG(&conf.ConnectPGOptions, ops)
+	db, err := connectPG(&conf.ConnectPGOptions, conf.ConnectionOps)
 	if err != nil {
 		return nil, err
 	}
@@ -40,8 +35,8 @@ func NewDatabase(conf Config) (*Database, error) {
 	}
 
 	provider := &Database{
-		DB:               db,
-		connectionString: conf.ConnectionString,
+		DB:  db,
+		ops: conf.ConnectionOps,
 	}
 
 	return provider, nil
@@ -151,6 +146,17 @@ func (d *Database) RunInTransaction(ctx context.Context, next func(ctx context.C
 		return convertError(next(ctx))
 	})
 }
+
+func ToOps(port int, ssl bool, username, password, db, host string) *pg.Options {
+	return &pg.Options{
+		Addr:     fmt.Sprintf("%s:%d", host, port),
+		User:     username,
+		Password: password,
+		Database: db,
+	}
+}
+
+type Options = pg.Options
 
 // ToURL constructs a Postgres querystring with sensible defaults.
 func ToURL(port int, ssl bool, username, password, db, host string) string {

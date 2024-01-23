@@ -145,14 +145,14 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 }
 
 /*
-func testRunAddresses(addressChan chan []flow.Address) error {
-	// mainnet
-	addresses := []flow.Address{flow.HexToAddress("0xb643d57edb1740c6"), flow.HexToAddress("0x1b1c31af469bc4dc")}
-	// testnet
-	//addresses := []flow.Address{flow.HexToAddress("0x668b91e2995c2eba"), flow.HexToAddress("0x1d83294670972f97")}
-	addressChan <- addresses
-	return nil
-}
+	func testRunAddresses(addressChan chan []flow.Address) error {
+		// mainnet
+		addresses := []flow.Address{flow.HexToAddress("0xb643d57edb1740c6"), flow.HexToAddress("0x1b1c31af469bc4dc")}
+		// testnet
+		//addresses := []flow.Address{flow.HexToAddress("0x668b91e2995c2eba"), flow.HexToAddress("0x1d83294670972f97")}
+		addressChan <- addresses
+		return nil
+	}
 */
 func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange int, waitNumBlocks int) {
 	start := time.Now()
@@ -211,10 +211,10 @@ func processUrl(url string, collection []string) []string {
 func getPostgresConfig(conf Params, logger zerolog.Logger) pg.Config {
 	return pg.Config{
 		ConnectPGOptions: pg.ConnectPGOptions{
-			ConnectionString: getPostgresConnectionString(conf),
-			RetrySleepTime:   conf.PostgreSQLRetrySleepTime,
-			RetryNumTimes:    conf.PostgreSQLRetryNumTimes,
-			TLSConfig:        nil,
+			ConnectionOps:  getPostgresConnectionOps(conf),
+			RetrySleepTime: conf.PostgreSQLRetrySleepTime,
+			RetryNumTimes:  conf.PostgreSQLRetryNumTimes,
+			TLSConfig:      nil,
 			ConnErrorLogger: func(
 				numTries int,
 				duration time.Duration,
@@ -242,8 +242,8 @@ func getPostgresConfig(conf Params, logger zerolog.Logger) pg.Config {
 	}
 }
 
-func getPostgresConnectionString(conf Params) string {
-	return pg.ToURL(
+func getPostgresConnectionOps(conf Params) *pg.Options {
+	return pg.ToOps(
 		int(conf.PostgreSQLPort),
 		conf.PostgreSQLSSL,
 		conf.PostgreSQLUsername,
