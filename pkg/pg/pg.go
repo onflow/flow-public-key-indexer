@@ -2,10 +2,10 @@ package pg
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -179,13 +179,13 @@ func ToURL(port int, ssl bool, username, password, db, host string) string {
 
 	mode := ""
 	if !ssl {
-		mode = "?sslmode=disable"
+		mode = " sslmode=disable"
 	}
 
-	return str + "@" +
-		host + ":" +
-		strconv.Itoa(port) + "/" +
-		url.PathEscape(db) + mode
+	dbURI := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%d",
+		host, username, password, db, port) + mode
+
+	return dbURI
 }
 
 // parseURL is a wrapper around `pg.ParseURL`
