@@ -148,8 +148,17 @@ func (d *Database) RunInTransaction(ctx context.Context, next func(ctx context.C
 }
 
 func ToOps(port int, ssl bool, username, password, db, host string) *pg.Options {
+	Addr := fmt.Sprintf("%s:%d", host, port)
+	Network := "tcp"
+	if strings.HasPrefix(host, "/") {
+		Addr = host
+		Network = "unix"
+
+	}
 	return &pg.Options{
-		Addr:     fmt.Sprintf("%s:%d", host, port),
+
+		Addr:     Addr,
+		Network:  Network,
 		User:     username,
 		Password: password,
 		Database: db,
