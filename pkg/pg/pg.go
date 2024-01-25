@@ -163,7 +163,7 @@ func ToURL(port int, ssl bool, username, password, db, host string) string {
 	}
 
 	if strings.HasPrefix(host, "/") {
-		return fmt.Sprintf("unix://%s:%s@%s%s", username, url.PathEscape(password), db, host)
+		return fmt.Sprintf("unix://%s:%s@%s%s", username, password, db, host)
 	}
 
 	return str + "@" +
