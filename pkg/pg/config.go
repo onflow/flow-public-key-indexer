@@ -5,6 +5,14 @@ import (
 	"time"
 )
 
+type DatabaseConfig struct {
+	User     string
+	Password string
+	Name     string
+	Host     string
+	Port     int
+}
+
 // Config is the service configuration
 type Config struct {
 	ConnectPGOptions

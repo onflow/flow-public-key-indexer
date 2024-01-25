@@ -76,7 +76,6 @@ func (a *App) Initialize(params Params) {
 
 func (a *App) Run() {
 	// if anything happens close the db
-	defer a.DB.Stop()
 	if a.p.EnableSyncData {
 		log.Info().Msgf("Data Sync service is enabled")
 		go func() { a.loadPublicKeyData() }()
@@ -212,47 +211,12 @@ func processUrl(url string, collection []string) []string {
 	return collection
 }
 
-func getPostgresConfig(conf Params, logger zerolog.Logger) pg.Config {
-	return pg.Config{
-		ConnectPGOptions: pg.ConnectPGOptions{
-			ConnectionString: getPostgresConnectionString(conf),
-			RetrySleepTime:   conf.PostgreSQLRetrySleepTime,
-			RetryNumTimes:    conf.PostgreSQLRetryNumTimes,
-			TLSConfig:        nil,
-			ConnErrorLogger: func(
-				numTries int,
-				duration time.Duration,
-				host string,
-				db string,
-				user string,
-				ssl bool,
-				err error,
-			) {
-				// warn is probably a little strong here
-				logger.Info().
-					Int("numTries", numTries).
-					Dur("duration", duration).
-					Str("host", host).
-					Str("db", db).
-					Str("user", user).
-					Bool("ssl", ssl).
-					Err(err).
-					Msg("connection failed")
-			},
-		},
-		PGApplicationName: "public-key-indexer",
-		PGLoggerPrefix:    conf.PostgresLoggerPrefix,
-		PGPoolSize:        conf.PostgreSQLPoolSize,
+func getPostgresConfig(conf Params, logger zerolog.Logger) pg.DatabaseConfig {
+	return pg.DatabaseConfig{
+		Host:     conf.PostgreSQLHost,
+		Password: conf.PostgreSQLPassword,
+		Name:     conf.PostgreSQLDatabase,
+		User:     conf.PostgreSQLUsername,
+		Port:     int(conf.PostgreSQLPort),
 	}
-}
-
-func getPostgresConnectionString(conf Params) string {
-	return pg.ToURL(
-		int(conf.PostgreSQLPort),
-		conf.PostgreSQLSSL,
-		conf.PostgreSQLUsername,
-		conf.PostgreSQLPassword,
-		conf.PostgreSQLDatabase,
-		conf.PostgreSQLHost,
-	)
 }

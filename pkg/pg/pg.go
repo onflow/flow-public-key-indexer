@@ -2,7 +2,6 @@ package pg
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"net/url"
@@ -10,17 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/uptrace/bun"
+	"gorm.io/gorm"
 )
 
 // Database is a connection to a Postgres database.
 type Database struct {
-	*bun.DB
-	connectionString string
+	*gorm.DB
+	connectionConfig DatabaseConfig
 }
 
 // NewDatabase creates a new database connection.
-func NewDatabase(conf Config) (*Database, error) {
+func NewDatabase(conf DatabaseConfig) (*Database, error) {
 
 	db, err := connectPG(conf)
 	if err != nil {
@@ -29,7 +28,7 @@ func NewDatabase(conf Config) (*Database, error) {
 
 	provider := &Database{
 		DB:               db,
-		connectionString: conf.ConnectionString,
+		connectionConfig: conf,
 	}
 
 	return provider, nil
@@ -40,11 +39,6 @@ func (d *Database) Ping(ctx context.Context) (err error) {
 	err = d.Ping(ctx)
 
 	return err
-}
-
-// Close closes the database.
-func (d *Database) Close() error {
-	return d.DB.Close()
 }
 
 // create table and index in database
@@ -66,35 +60,21 @@ func (d *Database) InitDatabase(purgeOnStart bool) error {
 	deleteTable := `DROP TABLE IF EXISTS publickeyindexer`
 	deleteTableStats := `DROP TABLE IF EXISTS publickeyindexer_stats`
 
-	ctx, cancelfunc := context.WithTimeout(context.Background(), 2*time.Second)
+	_, cancelfunc := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancelfunc()
 
 	if purgeOnStart {
-		if _, err := d.DB.ExecContext(ctx, deleteIndex); err != nil {
-			return err
-		}
-		if _, err := d.DB.ExecContext(ctx, deleteTable); err != nil {
-			return err
-		}
-		if _, err := d.DB.ExecContext(ctx, deleteTableStats); err != nil {
-			return err
-		}
+		d.DB.Exec(deleteIndex)
+		d.DB.Exec(deleteTable)
+		d.DB.Exec(deleteTableStats)
 	}
-	if _, err := d.DB.ExecContext(ctx, createTable); err != nil {
-		return err
-	}
+	d.DB.Exec(createTable)
 
-	if _, err := d.DB.ExecContext(ctx, createIndex); err != nil {
-		return err
-	}
+	d.DB.Exec(createIndex)
 
-	if _, err := d.DB.ExecContext(ctx, createStatsTable); err != nil {
-		return err
-	}
+	d.DB.Exec(createStatsTable)
 
-	if _, err := d.DB.ExecContext(ctx, insertStatsTable); err != nil {
-		return err
-	}
+	d.DB.Exec(insertStatsTable)
 
 	return nil
 }
@@ -112,14 +92,14 @@ func (d *Database) TruncateAll() error {
 		AND table_type='BASE TABLE' AND table_name!= 'schema_migrations';
 	`
 
-	if _, err := d.DB.Query(query); err != nil {
+	if err := d.DB.Raw(query).Error; err != nil {
 		return err
 	}
 
 	// run a transaction that truncates all our tables
-	return d.DB.RunInTx(context.Background(), &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
+	return d.DB.Transaction(func(tx *gorm.DB) error {
 		for _, info := range tableInfo {
-			if _, err := tx.Exec("TRUNCATE " + info.Table + " CASCADE;"); err != nil {
+			if err := tx.Exec("TRUNCATE " + info.Table + " CASCADE;").Error; err != nil {
 				return err
 			}
 		}
@@ -128,14 +108,23 @@ func (d *Database) TruncateAll() error {
 }
 
 func (d *Database) RunInTransaction(ctx context.Context, next func(ctx context.Context) error) error {
-	tx, err := d.DB.Begin()
-	if err != nil {
-		return err
+	gormTx := d.DB.Begin()
+	if gormTx.Error != nil {
+		return gormTx.Error
 	}
 
-	return tx.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
-		return convertError(next(ctx))
-	})
+	defer func() {
+		// Recover from panic and handle transaction rollback or commit
+		if r := recover(); r != nil {
+			gormTx.Rollback()
+			panic(r) // Re-panic after rollback
+		} else if err := gormTx.Commit().Error; err != nil {
+			gormTx.Rollback()
+		}
+	}()
+
+	// Execute the provided function within the transaction
+	return convertError(next(context.WithValue(ctx, "gorm:db", gormTx)))
 }
 
 func ToURL(port int, ssl bool, username, password, db, host string) string {

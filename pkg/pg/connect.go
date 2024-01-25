@@ -1,52 +1,29 @@
 package pg
 
 import (
-	"database/sql"
-	"errors"
 	"fmt"
-	"time"
 
-	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/pgdialect"
-	"github.com/uptrace/bun/driver/pgdriver"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 // connectPG will attempt to connect to a Postgres database.
-func connectPG(conf Config) (*bun.DB, error) {
+func connectPG(conf DatabaseConfig) (*gorm.DB, error) {
 
-	var err = errors.New("temp")
-	var numtries uint16
-	var bunDB *bun.DB
-	var pgconn *pgdriver.Connector
-
-	// use provided TLS config is present
-	if conf.TLSConfig != nil {
-		pgconn = pgdriver.NewConnector(pgdriver.WithDSN(conf.ConnectionString), pgdriver.WithTLSConfig(conf.ConnectPGOptions.TLSConfig), pgdriver.WithApplicationName(conf.PGApplicationName))
-	} else {
-		pgconn = pgdriver.NewConnector(pgdriver.WithDSN(conf.ConnectionString), pgdriver.WithApplicationName(conf.PGApplicationName))
+	cfg := postgres.Config{
+		DSN: fmt.Sprintf(
+			"host=%s user=%s password=%s dbname=%s port=%d sslmode=disable",
+			conf.Host,
+			conf.User,
+			conf.Password,
+			conf.Name,
+			conf.Port,
+		),
 	}
 
-	fmt.Printf("config %+v\n", pgconn.Config())
+	dial := postgres.New(cfg)
 
-	sqldb := sql.OpenDB(pgconn)
+	gormDB, err := gorm.Open(dial, &gorm.Config{})
 
-	for err != nil && numtries < conf.RetryNumTimes {
-
-		bunDB = bun.NewDB(sqldb, pgdialect.New())
-
-		err = bunDB.Ping()
-
-		if err != nil {
-			if conf.ConnErrorLogger != nil {
-				conf.ConnErrorLogger(int(numtries), conf.RetrySleepTime, pgconn.Config().Addr, pgconn.Config().Database, pgconn.Config().User, pgconn.Config().TLSConfig != nil, err)
-			}
-			// not sure if we need to close if we had an error
-			bunDB.Close()
-			// sleep
-			time.Sleep(conf.RetrySleepTime)
-		}
-		numtries++
-	}
-
-	return bunDB, err
+	return gormDB, err
 }

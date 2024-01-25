@@ -12,17 +12,23 @@ type PublicKeyIndexer struct {
 }
 
 type PublicKeyAccountIndexer struct {
-	tableName struct{} `pg:"publickeyindexer"`
-	PublicKey string   `json:"publicKey" pg:"publickey"`
-	Account   string   `json:"account" pg:"account"`
-	KeyId     int      `json:"keyId" pg:"keyid,use_zero"`
-	Weight    int      `json:"weight" pg:"weight,use_zero"`
+	PublicKey string `json:"publicKey" gorm:"column:publickey"`
+	Account   string `json:"account" gorm:"column:account"`
+	KeyId     int    `json:"keyId" gorm:"column:keyid"`
+	Weight    int    `json:"weight" gorm:"column:weight"`
+}
+
+func (PublicKeyAccountIndexer) TableName() string {
+	return "publickeyindexer"
 }
 
 type PublicKeyBlockHeight struct {
-	tableName          struct{} `pg:"publickeyindexer_stats"`
-	UpdatedBlockheight uint64   `pg:"updatedBlockheight"`
-	PendingBlockheight uint64   `pg:"pendingBlockheight"`
+	UpdatedBlockheight uint64 `gorm:"column:updatedBlockheight"`
+	PendingBlockheight uint64 `gorm:"column:pendingBlockheight"`
+}
+
+func (PublicKeyBlockHeight) TableName() string {
+	return "publickeyindexer_stats"
 }
 
 type PublicKeyStatus struct {

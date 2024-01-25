@@ -3,8 +3,6 @@ package pg
 import (
 	"database/sql"
 	"errors"
-
-	"github.com/uptrace/bun/driver/pgdriver"
 )
 
 var (
@@ -27,10 +25,6 @@ func convertError(err error) error {
 	case ErrNoRows, ErrMultiRows, ErrInvalidEnumValue, nil:
 		return err
 	default:
-		pgErr, ok := err.(pgdriver.Error)
-		if ok && pgErr.IntegrityViolation() {
-			return ErrIntegrityViolation
-		}
 		return err
 	}
 }

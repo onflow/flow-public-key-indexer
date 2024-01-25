@@ -13,13 +13,13 @@ import (
 )
 
 type Store struct {
-	conf   Config
+	conf   DatabaseConfig
 	logger zerolog.Logger
 	db     *Database
 	done   chan bool
 }
 
-func NewStore(conf Config, logger zerolog.Logger) *Store {
+func NewStore(conf DatabaseConfig, logger zerolog.Logger) *Store {
 	return &Store{
 		conf:   conf,
 		logger: logger,
@@ -39,11 +39,6 @@ func (s *Store) Start(purgeOnStart bool) error {
 
 }
 
-func (s *Store) Stop() {
-	_ = s.db.Close()
-	s.done <- true
-}
-
 func (s Store) Stats() model.PublicKeyStatus {
 	status, _ := s.GetPublicKeyStats()
 	isBulkLoading := uint64(status.UpdatedToBlock) == uint64(0)
@@ -61,7 +56,8 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 	err := s.db.RunInTransaction(ctx, func(ctx context.Context) error {
 
 		for _, publicKeyAccount := range pkis {
-			_, err := s.db.NewInsert().Model(&publicKeyAccount).Exec(context.Background())
+
+			err := s.db.Create(&publicKeyAccount).Error
 
 			if errors.Is(err, ErrIntegrityViolation) {
 				// this can occur when accounts get reloaded, expected
@@ -90,7 +86,7 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 
 func (s Store) UpdateUpdatedBlockHeight(blockNumber uint64) {
 	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET updatedBlockheight = %v`, blockNumber)
-	_, err := s.db.Exec(sqlStatement, blockNumber)
+	err := s.db.Raw(sqlStatement, blockNumber).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update updated block height %v", blockNumber)
 	}
@@ -100,9 +96,9 @@ func (s Store) GetUpdatedBlockHeight() (uint64, error) {
 	query := "SELECT updatedBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
 
-	err := s.db.NewRaw(
+	err := s.db.Exec(
 		query,
-	).Scan(context.Background(), &blockNumber)
+	).Scan(&blockNumber).Error
 
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get loading block height %v", blockNumber)
@@ -113,18 +109,22 @@ func (s Store) GetUpdatedBlockHeight() (uint64, error) {
 
 func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 	query := "SELECT uniquePublicKeys, updatedBlockheight, pendingBlockheight FROM publickeyindexer_stats;"
-	var uniquePublicKeys int
-	var updatedBlockheight int
-	var pendingBlockheight int
+	type Result struct {
+		uniquePublicKeys   int
+		updatedBlockheight int
+		pendingBlockheight int
+	}
 
-	err := s.db.NewRaw(query).Scan(context.Background(), &uniquePublicKeys, &updatedBlockheight, &pendingBlockheight)
+	var result Result
+
+	err := s.db.Exec(query).Scan(&result).Error
 	if err != nil {
-		s.logger.Error().Err(err).Msgf("get status %v", uniquePublicKeys)
+		s.logger.Error().Err(err).Msgf("get status %v", result.uniquePublicKeys)
 	}
 	status := model.PublicKeyStatus{
-		Count:          uniquePublicKeys,
-		UpdatedToBlock: updatedBlockheight,
-		PendingToBlock: pendingBlockheight,
+		Count:          result.uniquePublicKeys,
+		UpdatedToBlock: result.updatedBlockheight,
+		PendingToBlock: result.pendingBlockheight,
 	}
 	return status, nil
 }
@@ -132,7 +132,7 @@ func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 func (s Store) UpdateDistinctCount() {
 	cnt, _ := s.GetCount()
 	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET uniquePublicKeys = %v`, cnt)
-	_, err := s.db.Exec(sqlStatement)
+	err := s.db.Exec(sqlStatement).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update unique public keys %v", cnt)
 	}
@@ -142,7 +142,7 @@ func (s Store) GetCount() (int, error) {
 	query := "SELECT COUNT(distinct publickey) as cnt FROM publickeyindexer;"
 	var cnt int
 
-	err := s.db.NewRaw(query).Scan(context.Background(), &cnt)
+	err := s.db.Exec(query).Scan(&cnt).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get distinct publickey count %v", cnt)
 	}
@@ -153,7 +153,7 @@ func (s Store) GetCount() (int, error) {
 func (s Store) UpdateLoadingBlockHeight(blockNumber uint64) {
 	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET pendingBlockheight = %v`, blockNumber)
 
-	_, err := s.db.Exec(sqlStatement, blockNumber)
+	err := s.db.Exec(sqlStatement).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update loading block height %v", blockNumber)
 	}
@@ -164,7 +164,7 @@ func (s Store) GetLoadingBlockHeight() (uint64, error) {
 	query := "SELECT pendingBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
 
-	err := s.db.NewRaw(query).Scan(context.Background(), &blockNumber)
+	err := s.db.Exec(query).Scan(&blockNumber).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get loading block height %v", blockNumber)
 	}
@@ -175,7 +175,7 @@ func (s Store) GetLoadingBlockHeight() (uint64, error) {
 func (s Store) RemovePublicKeyInfo(publicKey string, account string) {
 	s.logger.Debug().Msgf("remove pk and acct %v %v", publicKey, account)
 	sqlStatement := `DELETE FROM publickeyindexer WHERE publickey = $1 and account = $2;`
-	_, err := s.db.Exec(sqlStatement, publicKey, account)
+	err := s.db.Exec(sqlStatement, publicKey, account).Error
 	if err != nil {
 		s.logger.Warn().Msgf("Could not remove record %v %v", account, publicKey)
 	}
@@ -183,7 +183,7 @@ func (s Store) RemovePublicKeyInfo(publicKey string, account string) {
 
 func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer, error) {
 	var publickeys []model.PublicKeyAccountIndexer
-	err := s.db.NewSelect().Model(&publickeys).Where("publickey = ?", publicKey).Scan(context.Background())
+	err := s.db.Find(&publickeys).Where("publickey = ?", publicKey).Scan(publickeys).Error
 
 	if err != nil {
 		return model.PublicKeyIndexer{}, err
