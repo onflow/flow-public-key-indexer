@@ -2,6 +2,7 @@ package main
 
 import (
 	"example/flow-key-indexer/pkg/pg"
+	"fmt"
 	"strings"
 	"time"
 
@@ -56,7 +57,10 @@ type App struct {
 func (a *App) Initialize(params Params) {
 	params.AllFlowUrls = setAllFlowUrls(params)
 	a.p = params
+
+	fmt.Printf("params %+v\n", params)
 	dbConfig := getPostgresConfig(params, log.Logger)
+	fmt.Printf("config %+v\n", dbConfig)
 
 	db := pg.NewStore(dbConfig, log.Logger)
 	err := db.Start(params.PurgeOnStart)
