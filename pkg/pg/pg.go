@@ -3,9 +3,11 @@ package pg
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -158,6 +160,10 @@ func ToURL(port int, ssl bool, username, password, db, host string) string {
 	mode := ""
 	if !ssl {
 		mode = "?sslmode=disable"
+	}
+
+	if strings.HasPrefix(host, "/") {
+		return fmt.Sprintf("unix://%s:%s@%s%s", username, url.PathEscape(password), db, host)
 	}
 
 	return str + "@" +
