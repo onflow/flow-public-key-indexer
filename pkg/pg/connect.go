@@ -3,6 +3,7 @@ package pg
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -24,6 +25,9 @@ func connectPG(conf Config) (*bun.DB, error) {
 	} else {
 		pgconn = pgdriver.NewConnector(pgdriver.WithDSN(conf.ConnectionString), pgdriver.WithApplicationName(conf.PGApplicationName))
 	}
+
+	fmt.Printf("config %+v\n", pgconn.Config())
+
 	sqldb := sql.OpenDB(pgconn)
 
 	for err != nil && numtries < conf.RetryNumTimes {
