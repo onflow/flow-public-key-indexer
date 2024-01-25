@@ -34,7 +34,7 @@ func connectPG(conf Config) (*bun.DB, error) {
 
 		if err != nil {
 			if conf.ConnErrorLogger != nil {
-				conf.ConnErrorLogger(int(numtries), conf.RetrySleepTime, ops.Addr, ops.Database, ops.User, ops.TLSConfig != nil, err)
+				conf.ConnErrorLogger(int(numtries), conf.RetrySleepTime, pgconn.Config().Addr, pgconn.Config().Database, pgconn.Config().User, pgconn.Config().TLSConfig != nil, err)
 			}
 			// not sure if we need to close if we had an error
 			bunDB.Close()

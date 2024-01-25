@@ -6,7 +6,6 @@ import (
 	"example/flow-key-indexer/model"
 	"fmt"
 
-	"github.com/go-pg/pg/v10"
 	_ "github.com/golang-migrate/migrate/database/postgres"
 	_ "github.com/golang-migrate/migrate/source/file"
 	"github.com/rs/zerolog"
@@ -62,7 +61,7 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 	err := s.db.RunInTransaction(ctx, func(ctx context.Context) error {
 
 		for _, publicKeyAccount := range pkis {
-			_, err := s.db.Model(&publicKeyAccount).Insert()
+			_, err := s.db.NewInsert().Model(&publicKeyAccount).Exec(context.Background())
 
 			if errors.Is(err, ErrIntegrityViolation) {
 				// this can occur when accounts get reloaded, expected
@@ -101,7 +100,10 @@ func (s Store) GetUpdatedBlockHeight() (uint64, error) {
 	query := "SELECT updatedBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
 
-	_, err := s.db.Model((*model.PublicKeyStatus)(nil)).QueryOne(pg.Scan(&blockNumber), query)
+	err := s.db.NewRaw(
+		query,
+	).Scan(context.Background(), &blockNumber)
+
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get loading block height %v", blockNumber)
 	}
@@ -115,7 +117,7 @@ func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 	var updatedBlockheight int
 	var pendingBlockheight int
 
-	_, err := s.db.Model((*model.PublicKeyStatus)(nil)).QueryOne(pg.Scan(&uniquePublicKeys, &updatedBlockheight, &pendingBlockheight), query)
+	err := s.db.NewRaw(query).Scan(context.Background(), &uniquePublicKeys, &updatedBlockheight, &pendingBlockheight)
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get status %v", uniquePublicKeys)
 	}
@@ -140,7 +142,7 @@ func (s Store) GetCount() (int, error) {
 	query := "SELECT COUNT(distinct publickey) as cnt FROM publickeyindexer;"
 	var cnt int
 
-	_, err := s.db.Model((*model.PublicKeyStatus)(nil)).QueryOne(pg.Scan(&cnt), query)
+	err := s.db.NewRaw(query).Scan(context.Background(), &cnt)
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get distinct publickey count %v", cnt)
 	}
@@ -162,7 +164,7 @@ func (s Store) GetLoadingBlockHeight() (uint64, error) {
 	query := "SELECT pendingBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
 
-	_, err := s.db.Model((*model.PublicKeyStatus)(nil)).QueryOne(pg.Scan(&blockNumber), query)
+	err := s.db.NewRaw(query).Scan(context.Background(), &blockNumber)
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get loading block height %v", blockNumber)
 	}
@@ -181,7 +183,7 @@ func (s Store) RemovePublicKeyInfo(publicKey string, account string) {
 
 func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer, error) {
 	var publickeys []model.PublicKeyAccountIndexer
-	err := s.db.Model(&publickeys).Where("publickey = ?", publicKey).Select()
+	err := s.db.NewSelect().Model(&publickeys).Where("publickey = ?", publicKey).Scan(context.Background())
 
 	if err != nil {
 		return model.PublicKeyIndexer{}, err
