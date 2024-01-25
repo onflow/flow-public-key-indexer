@@ -2,7 +2,6 @@ package main
 
 import (
 	"example/flow-key-indexer/pkg/pg"
-	"fmt"
 	"strings"
 	"time"
 
@@ -210,15 +209,12 @@ func processUrl(url string, collection []string) []string {
 }
 
 func getPostgresConfig(conf Params, logger zerolog.Logger) pg.Config {
-	ops := getPostgresConnectionOps(conf)
-	fmt.Printf("ops: %+v\n", ops)
-
 	return pg.Config{
 		ConnectPGOptions: pg.ConnectPGOptions{
-			ConnectionOps:  ops,
-			RetrySleepTime: conf.PostgreSQLRetrySleepTime,
-			RetryNumTimes:  conf.PostgreSQLRetryNumTimes,
-			TLSConfig:      nil,
+			ConnectionString: getPostgresConnectionString(conf),
+			RetrySleepTime:   conf.PostgreSQLRetrySleepTime,
+			RetryNumTimes:    conf.PostgreSQLRetryNumTimes,
+			TLSConfig:        nil,
 			ConnErrorLogger: func(
 				numTries int,
 				duration time.Duration,
@@ -246,8 +242,8 @@ func getPostgresConfig(conf Params, logger zerolog.Logger) pg.Config {
 	}
 }
 
-func getPostgresConnectionOps(conf Params) *pg.Options {
-	return pg.ToOps(
+func getPostgresConnectionString(conf Params) string {
+	return pg.ToURL(
 		int(conf.PostgreSQLPort),
 		conf.PostgreSQLSSL,
 		conf.PostgreSQLUsername,

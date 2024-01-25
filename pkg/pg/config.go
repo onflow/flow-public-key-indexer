@@ -3,8 +3,6 @@ package pg
 import (
 	"crypto/tls"
 	"time"
-
-	"github.com/go-pg/pg/v10"
 )
 
 // Config is the service configuration
@@ -19,9 +17,9 @@ type Config struct {
 // ConnectPGOptions attempts to connect to a pg instance;
 // retries `RetryNumTimes`
 type ConnectPGOptions struct {
-	ConnectionOps  *pg.Options
-	RetrySleepTime time.Duration
-	RetryNumTimes  uint16
+	ConnectionString string
+	RetrySleepTime   time.Duration
+	RetryNumTimes    uint16
 	// TLSConfig overrides any TLS config parsed from the connection string if not nil
 	TLSConfig       *tls.Config
 	ConnErrorLogger LogConErrorFunc
