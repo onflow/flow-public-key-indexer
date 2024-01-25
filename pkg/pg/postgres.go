@@ -153,7 +153,7 @@ func (s Store) GetCount() (int, error) {
 func (s Store) UpdateLoadingBlockHeight(blockNumber uint64) {
 	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET pendingBlockheight = %v`, blockNumber)
 
-	err := s.db.Exec(sqlStatement, blockNumber).Error
+	err := s.db.Exec(sqlStatement).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update loading block height %v", blockNumber)
 	}
