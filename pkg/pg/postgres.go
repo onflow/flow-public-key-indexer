@@ -96,7 +96,8 @@ func (s Store) GetUpdatedBlockHeight() (uint64, error) {
 	query := "SELECT updatedBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
 
-	err := s.db.Exec(
+	fmt.Println("get updated block height", query)
+	err := s.db.Raw(
 		query,
 	).Scan(&blockNumber).Error
 
@@ -110,17 +111,24 @@ func (s Store) GetUpdatedBlockHeight() (uint64, error) {
 func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 	query := "SELECT uniquePublicKeys, updatedBlockheight, pendingBlockheight FROM publickeyindexer_stats;"
 	type Result struct {
-		uniquePublicKeys   int
-		updatedBlockheight int
-		pendingBlockheight int
+		uniquePublicKeys   int `gorm:"column:uniquePublicKeys"`
+		updatedBlockheight int `gorm:"column:updatedBlockheight"`
+		pendingBlockheight int `gorm:"column:pendingBlockheight"`
 	}
+
+	rows, err := s.db.Raw(query).Rows()
+	if err != nil {
+		s.logger.Error().Err(err).Msgf("GetPublicKeyStats ")
+	}
+	defer rows.Close()
 
 	var result Result
-
-	err := s.db.Exec(query).Scan(&result).Error
-	if err != nil {
-		s.logger.Error().Err(err).Msgf("get status %v", result.uniquePublicKeys)
+	for rows.Next() {
+		rows.Scan(&result.uniquePublicKeys, &result.updatedBlockheight, &result.pendingBlockheight)
 	}
+
+	s.logger.Error().Msgf("get status %v", result.uniquePublicKeys)
+
 	status := model.PublicKeyStatus{
 		Count:          result.uniquePublicKeys,
 		UpdatedToBlock: result.updatedBlockheight,
@@ -142,7 +150,7 @@ func (s Store) GetCount() (int, error) {
 	query := "SELECT COUNT(distinct publickey) as cnt FROM publickeyindexer;"
 	var cnt int
 
-	err := s.db.Exec(query).Scan(&cnt).Error
+	err := s.db.Raw(query).Scan(&cnt).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get distinct publickey count %v", cnt)
 	}
@@ -164,7 +172,7 @@ func (s Store) GetLoadingBlockHeight() (uint64, error) {
 	query := "SELECT pendingBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
 
-	err := s.db.Exec(query).Scan(&blockNumber).Error
+	err := s.db.Raw(query).Scan(&blockNumber).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get loading block height %v", blockNumber)
 	}
