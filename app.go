@@ -56,6 +56,7 @@ type App struct {
 func (a *App) Initialize(params Params) {
 	params.AllFlowUrls = setAllFlowUrls(params)
 	a.p = params
+
 	dbConfig := getPostgresConfig(params, log.Logger)
 
 	db := pg.NewStore(dbConfig, log.Logger)
@@ -72,7 +73,6 @@ func (a *App) Initialize(params Params) {
 
 func (a *App) Run() {
 	// if anything happens close the db
-	defer a.DB.Stop()
 	if a.p.EnableSyncData {
 		log.Info().Msgf("Data Sync service is enabled")
 		go func() { a.loadPublicKeyData() }()
@@ -145,14 +145,14 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 }
 
 /*
-func testRunAddresses(addressChan chan []flow.Address) error {
-	// mainnet
-	addresses := []flow.Address{flow.HexToAddress("0xb643d57edb1740c6"), flow.HexToAddress("0x1b1c31af469bc4dc")}
-	// testnet
-	//addresses := []flow.Address{flow.HexToAddress("0x668b91e2995c2eba"), flow.HexToAddress("0x1d83294670972f97")}
-	addressChan <- addresses
-	return nil
-}
+	func testRunAddresses(addressChan chan []flow.Address) error {
+		// mainnet
+		addresses := []flow.Address{flow.HexToAddress("0xb643d57edb1740c6"), flow.HexToAddress("0x1b1c31af469bc4dc")}
+		// testnet
+		//addresses := []flow.Address{flow.HexToAddress("0x668b91e2995c2eba"), flow.HexToAddress("0x1d83294670972f97")}
+		addressChan <- addresses
+		return nil
+	}
 */
 func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange int, waitNumBlocks int) {
 	start := time.Now()
@@ -208,47 +208,12 @@ func processUrl(url string, collection []string) []string {
 	return collection
 }
 
-func getPostgresConfig(conf Params, logger zerolog.Logger) pg.Config {
-	return pg.Config{
-		ConnectPGOptions: pg.ConnectPGOptions{
-			ConnectionString: getPostgresConnectionString(conf),
-			RetrySleepTime:   conf.PostgreSQLRetrySleepTime,
-			RetryNumTimes:    conf.PostgreSQLRetryNumTimes,
-			TLSConfig:        nil,
-			ConnErrorLogger: func(
-				numTries int,
-				duration time.Duration,
-				host string,
-				db string,
-				user string,
-				ssl bool,
-				err error,
-			) {
-				// warn is probably a little strong here
-				logger.Info().
-					Int("numTries", numTries).
-					Dur("duration", duration).
-					Str("host", host).
-					Str("db", db).
-					Str("user", user).
-					Bool("ssl", ssl).
-					Err(err).
-					Msg("connection failed")
-			},
-		},
-		PGApplicationName: "public-key-indexer",
-		PGLoggerPrefix:    conf.PostgresLoggerPrefix,
-		PGPoolSize:        conf.PostgreSQLPoolSize,
+func getPostgresConfig(conf Params, logger zerolog.Logger) pg.DatabaseConfig {
+	return pg.DatabaseConfig{
+		Host:     conf.PostgreSQLHost,
+		Password: conf.PostgreSQLPassword,
+		Name:     conf.PostgreSQLDatabase,
+		User:     conf.PostgreSQLUsername,
+		Port:     int(conf.PostgreSQLPort),
 	}
-}
-
-func getPostgresConnectionString(conf Params) string {
-	return pg.ToURL(
-		int(conf.PostgreSQLPort),
-		conf.PostgreSQLSSL,
-		conf.PostgreSQLUsername,
-		conf.PostgreSQLPassword,
-		conf.PostgreSQLDatabase,
-		conf.PostgreSQLHost,
-	)
 }

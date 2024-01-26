@@ -2,46 +2,33 @@ package pg
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/go-pg/pg/v10"
-	"golang.org/x/xerrors"
+	"gorm.io/gorm"
 )
 
 // Database is a connection to a Postgres database.
 type Database struct {
-	*pg.DB
-	connectionString string
+	*gorm.DB
+	connectionConfig DatabaseConfig
 }
 
 // NewDatabase creates a new database connection.
-func NewDatabase(conf Config) (*Database, error) {
-	ops, err := parseURL(conf.ConnectionString)
+func NewDatabase(conf DatabaseConfig) (*Database, error) {
+
+	db, err := connectPG(conf)
 	if err != nil {
 		return nil, err
-	}
-
-	// useful when debugging long running queries
-	ops.ApplicationName = conf.PGApplicationName
-
-	db, err := connectPG(&conf.ConnectPGOptions, ops)
-	if err != nil {
-		return nil, err
-	}
-
-	// set query logger
-	if conf.SetInternalPGLogger {
-		pg.SetLogger(&logger{log.New(os.Stdout, conf.PGLoggerPrefix, log.LstdFlags)})
 	}
 
 	provider := &Database{
 		DB:               db,
-		connectionString: conf.ConnectionString,
+		connectionConfig: conf,
 	}
 
 	return provider, nil
@@ -49,16 +36,9 @@ func NewDatabase(conf Config) (*Database, error) {
 
 // Ping pings the database to ensure that we can connect to it.
 func (d *Database) Ping(ctx context.Context) (err error) {
-	return d.DB.RunInTransaction(ctx, func(tx *pg.Tx) error {
-		i := 0
-		_, err = tx.QueryOne(pg.Scan(&i), "SELECT 1")
-		return err
-	})
-}
+	err = d.Ping(ctx)
 
-// Close closes the database.
-func (d *Database) Close() error {
-	return d.DB.Close()
+	return err
 }
 
 // create table and index in database
@@ -80,35 +60,21 @@ func (d *Database) InitDatabase(purgeOnStart bool) error {
 	deleteTable := `DROP TABLE IF EXISTS publickeyindexer`
 	deleteTableStats := `DROP TABLE IF EXISTS publickeyindexer_stats`
 
-	ctx, cancelfunc := context.WithTimeout(context.Background(), 2*time.Second)
+	_, cancelfunc := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancelfunc()
 
 	if purgeOnStart {
-		if _, err := d.DB.ExecContext(ctx, deleteIndex); err != nil {
-			return err
-		}
-		if _, err := d.DB.ExecContext(ctx, deleteTable); err != nil {
-			return err
-		}
-		if _, err := d.DB.ExecContext(ctx, deleteTableStats); err != nil {
-			return err
-		}
+		d.DB.Exec(deleteIndex)
+		d.DB.Exec(deleteTable)
+		d.DB.Exec(deleteTableStats)
 	}
-	if _, err := d.DB.ExecContext(ctx, createTable); err != nil {
-		return err
-	}
+	d.DB.Exec(createTable)
 
-	if _, err := d.DB.ExecContext(ctx, createIndex); err != nil {
-		return err
-	}
+	d.DB.Exec(createIndex)
 
-	if _, err := d.DB.ExecContext(ctx, createStatsTable); err != nil {
-		return err
-	}
+	d.DB.Exec(createStatsTable)
 
-	if _, err := d.DB.ExecContext(ctx, insertStatsTable); err != nil {
-		return err
-	}
+	d.DB.Exec(insertStatsTable)
 
 	return nil
 }
@@ -126,14 +92,14 @@ func (d *Database) TruncateAll() error {
 		AND table_type='BASE TABLE' AND table_name!= 'schema_migrations';
 	`
 
-	if _, err := d.DB.Query(&tableInfo, query); err != nil {
+	if err := d.DB.Raw(query).Error; err != nil {
 		return err
 	}
 
 	// run a transaction that truncates all our tables
-	return d.DB.RunInTransaction(context.Background(), func(tx *pg.Tx) error {
+	return d.DB.Transaction(func(tx *gorm.DB) error {
 		for _, info := range tableInfo {
-			if _, err := tx.Exec("TRUNCATE " + info.Table + " CASCADE;"); err != nil {
+			if err := tx.Exec("TRUNCATE " + info.Table + " CASCADE;").Error; err != nil {
 				return err
 			}
 		}
@@ -142,37 +108,40 @@ func (d *Database) TruncateAll() error {
 }
 
 func (d *Database) RunInTransaction(ctx context.Context, next func(ctx context.Context) error) error {
-	tx, err := d.DB.Begin()
-	if err != nil {
-		return err
+	gormTx := d.DB.Begin()
+	if gormTx.Error != nil {
+		return gormTx.Error
 	}
 
-	return tx.RunInTransaction(ctx, func(tx *pg.Tx) error {
-		return convertError(next(ctx))
-	})
+	defer func() {
+		// Recover from panic and handle transaction rollback or commit
+		if r := recover(); r != nil {
+			gormTx.Rollback()
+			panic(r) // Re-panic after rollback
+		} else if err := gormTx.Commit().Error; err != nil {
+			gormTx.Rollback()
+		}
+	}()
+
+	// Execute the provided function within the transaction
+	return convertError(next(context.WithValue(ctx, "gorm:db", gormTx)))
 }
 
-// ToURL constructs a Postgres querystring with sensible defaults.
 func ToURL(port int, ssl bool, username, password, db, host string) string {
 	str := "postgres://"
-
 	if len(username) == 0 {
 		username = "postgres"
 	}
 	str += url.PathEscape(username)
-
 	if len(password) > 0 {
 		str = str + ":" + url.PathEscape(password)
 	}
-
 	if port == 0 {
 		port = 5432
 	}
-
 	if db == "" {
 		db = "postgres"
 	}
-
 	if host == "" {
 		host = "localhost"
 	}
@@ -182,29 +151,14 @@ func ToURL(port int, ssl bool, username, password, db, host string) string {
 		mode = "?sslmode=disable"
 	}
 
+	if strings.HasPrefix(host, "/") {
+		return fmt.Sprintf("unix://%s:%s@%s%s", username, password, db, host)
+	}
+
 	return str + "@" +
 		host + ":" +
 		strconv.Itoa(port) + "/" +
 		url.PathEscape(db) + mode
-}
-
-// parseURL is a wrapper around `pg.ParseURL`
-// that undoes the logic in https://github.com/go-pg/pg/pull/458; which is
-// to ensure that InsecureSkipVerify is false.
-func parseURL(sURL string) (*pg.Options, error) {
-	options, err := pg.ParseURL(sURL)
-	if err != nil {
-		return nil, xerrors.Errorf("pg: %w", err)
-	}
-
-	if options.TLSConfig != nil {
-		// override https://github.com/go-pg/pg/pull/458
-		options.TLSConfig.InsecureSkipVerify = false
-		// TLSConfig now requires either InsecureSkipVerify = true or ServerName not empty
-		options.TLSConfig.ServerName = strings.Split(options.Addr, ":")[0]
-	}
-
-	return options, nil
 }
 
 type logger struct {

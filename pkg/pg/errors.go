@@ -1,9 +1,8 @@
 package pg
 
 import (
+	"database/sql"
 	"errors"
-
-	"github.com/go-pg/pg/v10"
 )
 
 var (
@@ -21,17 +20,11 @@ var (
 
 func convertError(err error) error {
 	switch err {
-	case pg.ErrMultiRows:
-		return ErrMultiRows
-	case pg.ErrNoRows:
+	case sql.ErrNoRows:
 		return ErrNoRows
 	case ErrNoRows, ErrMultiRows, ErrInvalidEnumValue, nil:
 		return err
 	default:
-		pgErr, ok := err.(pg.Error)
-		if ok && pgErr.IntegrityViolation() {
-			return ErrIntegrityViolation
-		}
 		return err
 	}
 }

@@ -1,42 +1,29 @@
 package pg
 
 import (
-	"errors"
-	"time"
+	"fmt"
 
-	"github.com/go-pg/pg/v10"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 // connectPG will attempt to connect to a Postgres database.
-func connectPG(conf *ConnectPGOptions, ops *pg.Options) (*pg.DB, error) {
+func connectPG(conf DatabaseConfig) (*gorm.DB, error) {
 
-	// use provided TLS config is present
-	if conf.TLSConfig != nil {
-		ops.TLSConfig = conf.TLSConfig
+	cfg := postgres.Config{
+		DSN: fmt.Sprintf(
+			"host=%s user=%s password=%s dbname=%s port=%d sslmode=disable",
+			conf.Host,
+			conf.User,
+			conf.Password,
+			conf.Name,
+			conf.Port,
+		),
 	}
 
-	var err = errors.New("temp")
-	var numtries uint16
-	var pgdb *pg.DB
+	dial := postgres.New(cfg)
 
-	for err != nil && numtries < conf.RetryNumTimes {
+	gormDB, err := gorm.Open(dial, &gorm.Config{})
 
-		pgdb = pg.Connect(ops)
-
-		i := 0
-		_, err = pgdb.QueryOne(pg.Scan(&i), "SELECT 1")
-
-		if err != nil {
-			if conf.ConnErrorLogger != nil {
-				conf.ConnErrorLogger(int(numtries), conf.RetrySleepTime, ops.Addr, ops.Database, ops.User, ops.TLSConfig != nil, err)
-			}
-			// not sure if we need to close if we had an error
-			pgdb.Close()
-			// sleep
-			time.Sleep(conf.RetrySleepTime)
-		}
-		numtries++
-	}
-
-	return pgdb, err
+	return gormDB, err
 }
