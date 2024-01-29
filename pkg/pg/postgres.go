@@ -96,7 +96,7 @@ func (s Store) GetUpdatedBlockHeight() (uint64, error) {
 	query := "SELECT updatedBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
 
-	err := s.db.Exec(
+	err := s.db.Raw(
 		query,
 	).Scan(&blockNumber).Error
 
@@ -110,21 +110,21 @@ func (s Store) GetUpdatedBlockHeight() (uint64, error) {
 func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 	query := "SELECT uniquePublicKeys, updatedBlockheight, pendingBlockheight FROM publickeyindexer_stats;"
 	type Result struct {
-		uniquePublicKeys   int
-		updatedBlockheight int
-		pendingBlockheight int
+		UniquePublicKeys   int `gorm:"column:uniquepublickeys"`
+		UpdatedBlockheight int `gorm:"column:updatedblockheight"`
+		PendingBlockheight int `gorm:"column:pendingblockheight"`
 	}
 
 	var result Result
 
 	err := s.db.Exec(query).Scan(&result).Error
 	if err != nil {
-		s.logger.Error().Err(err).Msgf("get status %v", result.uniquePublicKeys)
+		s.logger.Error().Err(err).Msgf("get status %v", result.UniquePublicKeys)
 	}
 	status := model.PublicKeyStatus{
-		Count:          result.uniquePublicKeys,
-		UpdatedToBlock: result.updatedBlockheight,
-		PendingToBlock: result.pendingBlockheight,
+		Count:          result.UniquePublicKeys,
+		UpdatedToBlock: result.UpdatedBlockheight,
+		PendingToBlock: result.PendingBlockheight,
 	}
 	return status, nil
 }
@@ -132,7 +132,7 @@ func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 func (s Store) UpdateDistinctCount() {
 	cnt, _ := s.GetCount()
 	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET uniquePublicKeys = %v`, cnt)
-	err := s.db.Exec(sqlStatement).Error
+	err := s.db.Raw(sqlStatement).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update unique public keys %v", cnt)
 	}
@@ -142,7 +142,7 @@ func (s Store) GetCount() (int, error) {
 	query := "SELECT COUNT(distinct publickey) as cnt FROM publickeyindexer;"
 	var cnt int
 
-	err := s.db.Exec(query).Scan(&cnt).Error
+	err := s.db.Raw(query).Scan(&cnt).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get distinct publickey count %v", cnt)
 	}
@@ -153,7 +153,7 @@ func (s Store) GetCount() (int, error) {
 func (s Store) UpdateLoadingBlockHeight(blockNumber uint64) {
 	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET pendingBlockheight = %v`, blockNumber)
 
-	err := s.db.Exec(sqlStatement).Error
+	err := s.db.Raw(sqlStatement).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update loading block height %v", blockNumber)
 	}
@@ -164,7 +164,7 @@ func (s Store) GetLoadingBlockHeight() (uint64, error) {
 	query := "SELECT pendingBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
 
-	err := s.db.Exec(query).Scan(&blockNumber).Error
+	err := s.db.Raw(query).Scan(&blockNumber).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get loading block height %v", blockNumber)
 	}
@@ -175,7 +175,7 @@ func (s Store) GetLoadingBlockHeight() (uint64, error) {
 func (s Store) RemovePublicKeyInfo(publicKey string, account string) {
 	s.logger.Debug().Msgf("remove pk and acct %v %v", publicKey, account)
 	sqlStatement := `DELETE FROM publickeyindexer WHERE publickey = $1 and account = $2;`
-	err := s.db.Exec(sqlStatement, publicKey, account).Error
+	err := s.db.Raw(sqlStatement, publicKey, account).Error
 	if err != nil {
 		s.logger.Warn().Msgf("Could not remove record %v %v", account, publicKey)
 	}
