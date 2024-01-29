@@ -117,7 +117,7 @@ func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 
 	var result Result
 
-	err := s.db.Exec(query).Scan(&result).Error
+	err := s.db.Raw(query).Scan(&result).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get status %v", result.UniquePublicKeys)
 	}
