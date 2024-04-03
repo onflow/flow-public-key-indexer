@@ -43,7 +43,7 @@ func (d *Database) Ping(ctx context.Context) (err error) {
 
 // create table and index in database
 func (d *Database) InitDatabase(purgeOnStart bool) error {
-	createIndex := `CREATE INDEX IF NOT EXISTS public_key_at_brin_idx ON publickeyindexer USING brin(publicKey)`
+	createIndex := `CREATE INDEX IF NOT EXISTS public_key_btree_idx ON publickeyindexer USING btree(publicKey)`
 	createTable := `CREATE TABLE IF NOT EXISTS publickeyindexer(
 		publicKey varchar, 
 		account varchar, 
@@ -56,7 +56,7 @@ func (d *Database) InitDatabase(purgeOnStart bool) error {
 		uniquePublicKeys int
 		)`
 	insertStatsTable := `INSERT INTO publickeyindexer_stats select 0,0,0 from publickeyindexer_stats having count(*) < 1;`
-	deleteIndex := `DROP INDEX IF EXISTS public_key_at_brin_idx`
+	deleteIndex := `DROP INDEX IF EXISTS public_key_btree_idx`
 	deleteTable := `DROP TABLE IF EXISTS publickeyindexer`
 	deleteTableStats := `DROP TABLE IF EXISTS publickeyindexer_stats`
 
