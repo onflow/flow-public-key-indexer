@@ -183,7 +183,7 @@ func (s Store) RemovePublicKeyInfo(publicKey string, account string) {
 
 func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer, error) {
 	var publickeys []model.PublicKeyAccountIndexer
-	err := s.db.Find(&publickeys).Where("publickey = ?", publicKey).Scan(publickeys).Error
+	err := s.db.Where("publickey = ?", publicKey).Find(&publickeys).Error
 
 	if err != nil {
 		return model.PublicKeyIndexer{}, err
