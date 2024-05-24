@@ -28,6 +28,7 @@ import (
 
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
+	flowGrpc "github.com/onflow/flow-go-sdk/access/grpc"
 	"github.com/rs/zerolog/log"
 )
 
@@ -66,6 +67,12 @@ type GetAccountKeysHandler func(keys []model.PublicKeyAccountIndexer, height uin
 func (s *DataLoader) NewGetAccountKeysHandler(handler GetAccountKeysHandler) func(value cadence.Value, height uint64) {
 	return func(value cadence.Value, height uint64) {
 		allAccountsKeys := []model.PublicKeyAccountIndexer{}
+		// if value is nil, return
+		if value == nil {
+			handler(allAccountsKeys, height, nil)
+			return
+		}
+
 		for _, allKeys := range value.(cadence.Dictionary).Pairs {
 			address := allKeys.Key.(cadence.Address)
 			counter := 0
@@ -109,7 +116,7 @@ func NewDataLoader(DB pg.Store, fa FlowAdapter, p Params) *DataLoader {
 	return &s
 }
 
-func (s *DataLoader) SetupAddressLoader(addressChan chan []flow.Address) (uint64, error) {
+func (s *DataLoader) SetupAddressLoader(flowClient *flowGrpc.Client, addressChan chan []flow.Address) (uint64, error) {
 	config := DefaultConfig
 	config.FlowAccessNodeURLs = s.config.AllFlowUrls
 	config.ChainID = flow.ChainID(s.config.ChainId)
@@ -119,6 +126,7 @@ func (s *DataLoader) SetupAddressLoader(addressChan chan []flow.Address) (uint64
 	config.maxAcctKeys = s.config.MaxAcctKeys
 
 	blockHeight, err := RunAddressCadenceScript(
+		flowClient,
 		context.Background(),
 		log.Logger,
 		config,
@@ -129,7 +137,7 @@ func (s *DataLoader) SetupAddressLoader(addressChan chan []flow.Address) (uint64
 	return blockHeight, err
 }
 
-func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) error {
+func (s *DataLoader) RunAllAddressesLoader(flowClient *flowGrpc.Client, addressChan chan []flow.Address) error {
 	config := DefaultConfig
 	config.FlowAccessNodeURLs = s.config.AllFlowUrls
 	config.ChainID = flow.ChainID(s.config.ChainId)
@@ -140,14 +148,14 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) erro
 	config.Pause = time.Duration(s.config.FetchSlowDownMs * int(time.Millisecond))
 
 	s.DB.UpdateUpdatedBlockHeight(0) // indicates bulk loading
-	height, err := GetAllAddresses(context.Background(), log.Logger, config, addressChan)
+	height, err := GetAllAddresses(flowClient, context.Background(), log.Logger, config, addressChan)
 	// save height for next load time
 	s.DB.UpdateUpdatedBlockHeight(height)
 	return err
 }
 
-func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLoading bool, blockHeight uint64) (int, bool) {
-	pkAddrActions, currBlockHeight, restart, err := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
+func (s *DataLoader) RunIncAddressesLoader(flowClient *flowGrpc.Client, addressChan chan []flow.Address, isLoading bool, blockHeight uint64) (int, bool) {
+	pkAddrActions, currBlockHeight, restart, err := s.fa.GetAddressesFromBlockEvents(flowClient, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
 	if err != nil {
 		return 0, restart
 	}

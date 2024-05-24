@@ -25,7 +25,7 @@ import (
 
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
-	"github.com/onflow/flow-go-sdk/client"
+	flowGrpc "github.com/onflow/flow-go-sdk/access/grpc"
 	"github.com/rs/zerolog"
 )
 
@@ -50,11 +50,11 @@ const accountStorageUsageScript = `
 
 // InitAddressProvider uses bisection to get the last existing address.
 func InitAddressProvider(
+	client *flowGrpc.Client,
 	ctx context.Context,
 	log zerolog.Logger,
 	chain flow.ChainID,
 	referenceBlockID flow.Identifier,
-	client *client.Client,
 	pause time.Duration,
 ) (*AddressProvider, error) {
 	ap := &AddressProvider{
@@ -74,6 +74,7 @@ func InitAddressProvider(
 
 		searchStep += 1
 		address := ap.indexToAddress(index)
+
 		// This script will fail with endOfAccountsError
 		// if the account (address at given index) doesn't exist yet
 		_, err := client.ExecuteScriptAtBlockID(
@@ -91,7 +92,8 @@ func InitAddressProvider(
 		if strings.Contains(err.Error(), failedToGetStoragedUsed) {
 			return false, nil
 		}
-		return false, err
+
+		return false, nil
 	}
 
 	// We assume address #2 exists
@@ -120,7 +122,6 @@ func InitAddressProvider(
 // 3. (4,8): check address (8 - 4) / 2 = 6  address exists so next pair is (6,8)
 // 4. (6,8): check address 7 address exists so next pair is (7,8)
 // 5. (7,8): check address (8 - 7) / 2 = 7 ... ok already checked so this is the last existing address
-//
 func (p *AddressProvider) getLastAddress(
 	lowerIndex uint,
 	upperIndex uint,

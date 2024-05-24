@@ -183,14 +183,15 @@ func (s Store) RemovePublicKeyInfo(publicKey string, account string) {
 
 func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer, error) {
 	var publickeys []model.PublicKeyAccountIndexer
-	err := s.db.Find(&publickeys).Where("publickey = ?", publicKey).Scan(publickeys).Error
 
+	// Corrected chaining of methods: Where -> Find
+	err := s.db.Where("publickey = ?", publicKey).Find(&publickeys).Error
 	if err != nil {
 		return model.PublicKeyIndexer{}, err
 	}
 
 	accts := []model.AccountKey{}
-	// consolidate account data
+	// Consolidate account data
 	for _, pk := range publickeys {
 		acct := model.AccountKey{
 			Account: pk.Account,
@@ -199,9 +200,10 @@ func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer,
 		}
 		accts = append(accts, acct)
 	}
+
 	publicKeyAccounts := model.PublicKeyIndexer{
 		PublicKey: publicKey,
 		Accounts:  accts,
 	}
-	return publicKeyAccounts, err
+	return publicKeyAccounts, nil
 }

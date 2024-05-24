@@ -1,0 +1,51 @@
+{
+  "value": [
+    {
+      "key": { "value": "0x9d9c82206906df27", "type": "Address" },
+      "value": {
+        "value": [
+          {
+            "key": { "value": "0", "type": "Int" },
+            "value": {
+              "value": {
+                "id": "s.7f657c125679763d430ea18627d2cd8b1e4bbc3f041f8feb06badc0a04647c0f._AccountKey",
+                "fields": [
+                  {
+                    "value": { "value": "3", "type": "UInt8" },
+                    "name": "hashAlgorithm"
+                  },
+                  {
+                    "value": { "value": false, "type": "Bool" },
+                    "name": "isRevoked"
+                  },
+                  {
+                    "value": { "value": "1000.00000000", "type": "UFix64" },
+                    "name": "weight"
+                  },
+                  {
+                    "value": {
+                      "value": "af479a5626d32f2b5843e14d3f997177afcbd0451c1a28a16c15e98375e5dd27673ee38b816a4c7926bab927de4d1fcf69f80e30e24d5f6a3a9b99a56383b56a",
+                      "type": "String"
+                    },
+                    "name": "publicKey"
+                  },
+                  {
+                    "value": { "value": "0", "type": "Int" },
+                    "name": "keyIndex"
+                  },
+                  {
+                    "value": { "value": "1", "type": "UInt8" },
+                    "name": "signatureAlgorithm"
+                  }
+                ]
+              },
+              "type": "Struct"
+            }
+          }
+        ],
+        "type": "Dictionary"
+      }
+    }
+  ],
+  "type": "Dictionary"
+}

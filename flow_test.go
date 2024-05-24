@@ -2,8 +2,6 @@ package main
 
 import (
 	"testing"
-
-	"github.com/onflow/flow-go-sdk/client"
 )
 
 func TestChunkEventRangeQueryEven(t *testing.T) {
@@ -71,12 +69,12 @@ func TestChunkSmallEndSegments(t *testing.T) {
 	}
 }
 
-func assertBlockRange(t *testing.T, event client.EventRangeQuery, maxRange uint64) {
+func assertBlockRange(t *testing.T, event EventRangeQuery, maxRange uint64) {
 	if event.EndHeight-event.StartHeight > maxRange {
 		t.Errorf("block range exceeded: %d", event.EndHeight-event.StartHeight)
 	}
 }
-func assertBlockValues(t *testing.T, event client.EventRangeQuery, start, end uint64) {
+func assertBlockValues(t *testing.T, event EventRangeQuery, start, end uint64) {
 	if event.StartHeight != start {
 		t.Errorf("start height incorrect: %d should have been %d", event.StartHeight, start)
 	}

@@ -83,7 +83,7 @@ func (a *App) Run() {
 
 func (a *App) loadPublicKeyData() {
 	addressChan := make(chan []flow.Address)
-	a.dataLoader.SetupAddressLoader(addressChan)
+	a.dataLoader.SetupAddressLoader(a.flowClient.Client, addressChan)
 
 	// note: get current block pass into incremetal
 	// testing
@@ -134,7 +134,7 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 	// sets starting block height for incremental loader
 	a.DB.UpdateLoadingBlockHeight(currentBlock)
 
-	errLoad := a.dataLoader.RunAllAddressesLoader(addressChan)
+	errLoad := a.dataLoader.RunAllAddressesLoader(a.flowClient.Client, addressChan)
 	//errLoad := testRunAddresses(addressChan)
 
 	if errLoad != nil {
@@ -181,7 +181,7 @@ func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange in
 	}
 	// start loading from next block
 	startLoadingFrom := loadingBlkHeight + 1
-	addressCount, restart := a.dataLoader.RunIncAddressesLoader(addressChan, isLoading, startLoadingFrom)
+	addressCount, restart := a.dataLoader.RunIncAddressesLoader(a.flowClient.Client, addressChan, isLoading, startLoadingFrom)
 	duration := time.Since(start)
 	log.Info().Msgf("Inc Load, %f sec, (%d blk) curr: %d (%d addr)", duration.Seconds(), loadingBlockRange, currentBlock, addressCount)
 

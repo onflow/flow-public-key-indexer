@@ -27,19 +27,9 @@ import (
 
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
-	flowclient "github.com/onflow/flow-go-sdk/client"
+	flowGrpc "github.com/onflow/flow-go-sdk/access/grpc"
 	"github.com/rs/zerolog"
-	"google.golang.org/grpc"
 )
-
-// getFlowClient initializes and returns a flow client
-func getFlowClient(flowClientUrl string) *flowclient.Client {
-	flowClient, err := flowclient.New(flowClientUrl, grpc.WithInsecure())
-	if err != nil {
-		panic(err)
-	}
-	return flowClient
-}
 
 // Config defines that application's config
 type Config struct {
@@ -56,27 +46,27 @@ type Config struct {
 }
 
 var DefaultConfig = Config{
-	BatchSize:          100,
+	BatchSize:          10,
 	AtBlockHeight:      0,
 	FlowAccessNodeURLs: []string{"access.mainnet.nodes.onflow.org:9000"},
-	Pause:              0,
+	Pause:              50,
 	ChainID:            "flow-mainnet",
 }
 
 func GetAllAddresses(
+	flowClient *flowGrpc.Client,
 	ctx context.Context,
 	log zerolog.Logger,
 	conf Config,
 	addressChan chan []flow.Address,
 ) (height uint64, err error) {
-	flowClient := getFlowClient(conf.FlowAccessNodeURLs[0])
 
-	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
+	currentBlock, err := getBlockHeight(flowClient, ctx, conf)
 	if err != nil {
 		return 0, err
 	}
 
-	ap, err := InitAddressProvider(ctx, log, conf.ChainID, currentBlock.ID, flowClient, conf.Pause)
+	ap, err := InitAddressProvider(flowClient, ctx, log, conf.ChainID, currentBlock.ID, conf.Pause)
 	if err != nil {
 		return 0, err
 	}
@@ -86,6 +76,7 @@ func GetAllAddresses(
 }
 
 func RunAddressCadenceScript(
+	flowClient *flowGrpc.Client,
 	ctx context.Context,
 	log zerolog.Logger,
 	conf Config,
@@ -94,32 +85,19 @@ func RunAddressCadenceScript(
 	addressChan chan []flow.Address,
 ) (height uint64, err error) {
 	code := []byte(script)
-	flowUrl := conf.FlowAccessNodeURLs[0] // use first flow client url
-	flowClient := getFlowClient(flowUrl)
 
-	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
+	currentBlock, err := getBlockHeight(flowClient, ctx, conf)
 	if err != nil {
 		return 0, err
 	}
 
 	go func() {
-		// Each worker has a separate Flow client
-		client := getFlowClient(flowUrl)
-		defer func() {
-			err = client.Close()
-			if err != nil {
-				log.Warn().
-					Err(err).
-					Msg("error closing client")
-			}
-		}()
-
 		// Get the batches of address through addressChan,
 		// run the script with that batch of addresses,
 		// and pass the result to the handler
 
 		for accountAddresses := range addressChan {
-			runScript(ctx, conf, accountAddresses, log, code, flowClient, handler)
+			runScript(flowClient, ctx, conf, accountAddresses, log, code, handler)
 		}
 	}()
 
@@ -127,31 +105,31 @@ func RunAddressCadenceScript(
 }
 
 func runScript(
+	flowClient *flowGrpc.Client,
 	ctx context.Context,
 	conf Config,
 	addresses []flow.Address,
 	log zerolog.Logger,
 	script []byte,
-	flowClient *flowclient.Client,
 	handler func(cadence.Value, uint64),
 ) {
-	currentBlock, _ := getBlockHeight(ctx, conf, flowClient)
+	currentBlock, _ := getBlockHeight(flowClient, ctx, conf)
 	accountsCadenceValues := convertAddresses(addresses)
 	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.maxAcctKeys), cadence.NewBool(conf.ignoreZeroWeight), cadence.NewBool(conf.ignoreRevoked)}
-	result, err, rerun := retryScriptUntilSuccess(ctx, log, currentBlock.Height, script, arguments, flowClient, conf.Pause)
+	result, err, rerun := retryScriptUntilSuccess(flowClient, ctx, log, currentBlock.Height, script, arguments, conf.Pause)
 
 	if rerun {
 		log.Error().Err(err).Msgf("reducing num accounts. (%d addr)", len(accountsCadenceValues))
 		for _, newAddresses := range splitAddr(addresses) {
 			log.Warn().Msgf("rerunning script with fewer addresses (%d addr)", len(newAddresses))
-			runScript(ctx, conf, newAddresses, log, script, flowClient, handler)
+			runScript(flowClient, ctx, conf, newAddresses, log, script, handler)
 		}
 	} else {
 		handler(result, currentBlock.Height)
 	}
 }
 
-func getBlockHeight(ctx context.Context, conf Config, flowClient *flowclient.Client) (*flow.BlockHeader, error) {
+func getBlockHeight(flowClient *flowGrpc.Client, ctx context.Context, conf Config) (*flow.BlockHeader, error) {
 	if conf.AtBlockHeight != 0 {
 		blk, err := flowClient.GetBlockByHeight(ctx, conf.AtBlockHeight)
 		if err != nil {
@@ -171,12 +149,12 @@ func getBlockHeight(ctx context.Context, conf Config, flowClient *flowclient.Cli
 // returning an array of balance pairs, along with a boolean representing whether we can continue
 // or are finished processing.
 func retryScriptUntilSuccess(
+	flowClient *flowGrpc.Client,
 	ctx context.Context,
 	log zerolog.Logger,
 	blockHeight uint64,
 	script []byte,
 	arguments []cadence.Value,
-	flowClient *flowclient.Client,
 	pause time.Duration,
 ) (cadence.Value, error, bool) {
 	var err error
@@ -197,7 +175,6 @@ func retryScriptUntilSuccess(
 			blockHeight,
 			script,
 			arguments,
-			grpc.MaxCallRecvMsgSize(16*1024*1024),
 		)
 		if err == nil {
 			rerun = false
