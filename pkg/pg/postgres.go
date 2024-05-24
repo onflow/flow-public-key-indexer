@@ -60,24 +60,22 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 			err := s.db.Create(&publicKeyAccount).Error
 
 			if errors.Is(err, ErrIntegrityViolation) {
-				// this can occur when accounts get reloaded, expected
-				// leaving this here for documentation
+				// This can occur when accounts get reloaded, expected
+				log.Debug().Msg("Duplicate key error, account already exists")
+				// Continue to the next record
+				continue
 			} else {
 				if err != nil {
-					log.Debug().Err(err).Msg("inserting public key account record")
+					log.Debug().Err(err).Msg("Error inserting public key account record")
+					// Return the error if it's not an integrity violation
+					return err
 				}
-
 			}
 		}
 		return nil
 	})
 
 	if err != nil {
-		if errors.Is(err, ErrIntegrityViolation) {
-			// ignore if data already stored
-			return nil
-		}
-
 		return err
 	}
 

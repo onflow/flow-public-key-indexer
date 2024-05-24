@@ -106,7 +106,6 @@ func (d *Database) TruncateAll() error {
 		return nil
 	})
 }
-
 func (d *Database) RunInTransaction(ctx context.Context, next func(ctx context.Context) error) error {
 	gormTx := d.DB.Begin()
 	if gormTx.Error != nil {
