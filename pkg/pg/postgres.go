@@ -2,7 +2,6 @@ package pg
 
 import (
 	"context"
-	"errors"
 	"example/flow-key-indexer/model"
 	"fmt"
 
@@ -10,6 +9,7 @@ import (
 	_ "github.com/golang-migrate/migrate/source/file"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm/clause"
 )
 
 type Store struct {
@@ -57,19 +57,11 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 
 		for _, publicKeyAccount := range pkis {
 
-			err := s.db.Create(&publicKeyAccount).Error
-
-			if errors.Is(err, ErrIntegrityViolation) {
-				// This can occur when accounts get reloaded, expected
-				log.Debug().Msg("Duplicate key error, account already exists")
-				// Continue to the next record
-				continue
-			} else {
-				if err != nil {
-					log.Debug().Err(err).Msg("Error inserting public key account record")
-					// Return the error if it's not an integrity violation
-					return err
-				}
+			err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&publicKeyAccount).Error
+			if err != nil {
+				log.Debug().Err(err).Msg("Error inserting public key account record")
+				// Return the error if it's not an integrity violation
+				return err
 			}
 		}
 		return nil
