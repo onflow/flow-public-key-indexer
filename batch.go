@@ -21,11 +21,10 @@ package main
 import (
 	"context"
 	_ "embed"
+	"example/flow-key-indexer/model"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
 	flowclient "github.com/onflow/flow-go-sdk/client"
 	"github.com/rs/zerolog"
@@ -80,185 +79,49 @@ func GetAllAddresses(
 
 	return currentBlock.Height, nil
 }
-func RunAddressCadenceScript(
+
+func ProcessAddressChannel(
 	ctx context.Context,
 	log zerolog.Logger,
-	conf Config,
-	script string,
-	handler func(cadence.Value, uint64),
+	client *flowclient.Client,
+	pauseInterval int,
 	addressChan chan []flow.Address,
-) (height uint64, err error) {
-	code := []byte(script)
-	flowUrl := conf.FlowAccessNodeURLs[0] // use first flow client url
-	flowClient := getFlowClient(flowUrl)
-	if flowClient == nil {
-		return 0, fmt.Errorf("failed to initialize flow client")
-	}
-
-	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
-	if err != nil {
-		return 0, err
+	handler func([]model.PublicKeyAccountIndexer) error,
+) error {
+	if client == nil {
+		return fmt.Errorf("failed to initialize flow client")
 	}
 
 	go func() {
-		// Each worker has a separate Flow client
-		client := getFlowClient(flowUrl)
-		if client == nil {
-			log.Error().Msg("failed to initialize flow client in worker")
-			return
-		}
-		defer func() {
-			err = client.Close()
-			if err != nil {
-				log.Warn().
-					Err(err).
-					Msg("error closing client")
-			}
-		}()
-
-		// Get the batches of address through addressChan,
-		// run the script with that batch of addresses,
-		// and pass the result to the handler
 
 		for accountAddresses := range addressChan {
+			var keys []model.PublicKeyAccountIndexer
 			log.Debug().Msgf("running script with %d addresses", len(accountAddresses))
-			runScript(ctx, conf, accountAddresses, log, code, flowClient, handler)
+			for _, addr := range accountAddresses {
+				log.Debug().Msgf("getAccount with address: %v", addr)
+				acct, err := client.GetAccount(ctx, addr)
+				if err != nil {
+					log.Error().Err(err).Msg("failed to run script")
+				}
+				log.Debug().Msgf("account address: %v", len(acct.Keys))
+				for _, key := range acct.Keys {
+					keys = append(keys, model.PublicKeyAccountIndexer{
+						PublicKey: key.PublicKey.String(),
+						Account:   addr.String(),
+						Weight:    key.Weight,
+						KeyId:     key.Index,
+					})
+				}
+			}
+			err := handler(keys)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to handle keys")
+			}
+
+			// add wait time in seconds
+			time.Sleep(time.Duration(pauseInterval))
 		}
 	}()
 
-	return currentBlock.Height, nil
-}
-
-func runScript(
-	ctx context.Context,
-	conf Config,
-	addresses []flow.Address,
-	log zerolog.Logger,
-	script []byte,
-	flowClient *flowclient.Client,
-	handler func(cadence.Value, uint64),
-) {
-	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to get block height")
-		return
-	}
-
-	accountsCadenceValues := convertAddresses(addresses)
-	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.maxAcctKeys), cadence.NewBool(conf.ignoreZeroWeight), cadence.NewBool(conf.ignoreRevoked)}
-
-	result, err, rerun := retryScriptUntilSuccess(ctx, log, currentBlock.Height, script, arguments, flowClient, conf.Pause)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to execute script")
-		return
-	}
-
-	if rerun {
-		log.Error().Err(err).Msgf("reducing num accounts. (%d addr)", len(accountsCadenceValues))
-		for _, newAddresses := range splitAddr(addresses) {
-			log.Warn().Msgf("rerunning script with fewer addresses (%d addr)", len(newAddresses))
-			runScript(ctx, conf, newAddresses, log, script, flowClient, handler)
-		}
-	} else {
-		handler(result, currentBlock.Height)
-	}
-}
-
-func getBlockHeight(ctx context.Context, conf Config, flowClient *flowclient.Client) (*flow.BlockHeader, error) {
-	if conf.AtBlockHeight != 0 {
-		blk, err := flowClient.GetBlockByHeight(ctx, conf.AtBlockHeight)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get block at the specified height: %w", err)
-		}
-		return &blk.BlockHeader, nil
-	} else {
-		block, err := flowClient.GetLatestBlockHeader(ctx, true)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get the latest block header: %w", err)
-		}
-		return block, nil
-	}
-}
-
-// retries running the cadence script until we get a successful response back,
-// returning an array of balance pairs, along with a boolean representing whether we can continue
-// or are finished processing.
-func retryScriptUntilSuccess(
-	ctx context.Context,
-	log zerolog.Logger,
-	blockHeight uint64,
-	script []byte,
-	arguments []cadence.Value,
-	flowClient *flowclient.Client,
-	pause time.Duration,
-) (cadence.Value, error, bool) {
-	var err error
-	var result cadence.Value
-	rerun := true
-	attempts := 0
-	maxAttemps := 5
-	last := time.Now()
-
-	for {
-		if time.Since(last) < pause {
-			time.Sleep(pause)
-		}
-		last = time.Now()
-
-		result, err = flowClient.ExecuteScriptAtBlockHeight(
-			ctx,
-			blockHeight,
-			script,
-			arguments,
-			grpc.MaxCallRecvMsgSize(16*1024*1024),
-		)
-		if err == nil {
-			rerun = false
-			break
-		}
-		attempts = attempts + 1
-		if err != nil {
-			log.Error().Err(err).Msgf("%d attempt", attempts)
-		}
-		if attempts > maxAttemps || strings.Contains(err.Error(), "connection termination") {
-			// give up and don't retry
-			rerun = false
-			break
-		}
-		if strings.Contains(err.Error(), "ResourceExhausted") {
-			// really slow down when node is ResourceExhausted
-			time.Sleep(2 * pause)
-			continue
-		}
-		if strings.Contains(err.Error(), "DeadlineExceeded") {
-			// pass error back to caller, script ran too long
-			break
-		}
-	}
-
-	return result, err, rerun
-}
-
-func convertAddresses(addresses []flow.Address) []cadence.Value {
-	var accounts []cadence.Value
-	for _, address := range addresses {
-		accounts = append(accounts, cadence.Address(address))
-	}
-	return accounts
-}
-
-func splitAddr(addresses []flow.Address) [][]flow.Address {
-	limit := int(len(addresses) / 2)
-	var temp2 []flow.Address
-	var temp []flow.Address
-
-	for i := 0; i < len(addresses); i++ {
-		addr := addresses[i]
-		if i < limit {
-			temp = append(temp, addr)
-		} else {
-			temp2 = append(temp2, addr)
-		}
-	}
-	return [][]flow.Address{temp, temp2}
+	return nil
 }

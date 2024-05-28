@@ -69,6 +69,8 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 		return err
 	}
 
+	// update the distinct count
+	s.UpdateDistinctCount()
 	return nil
 }
 

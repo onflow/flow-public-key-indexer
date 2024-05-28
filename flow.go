@@ -72,8 +72,6 @@ func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlock
 	}
 
 	addrs, restartDataLoader := fa.GetEventAddresses(flowUrls, chunksEvents)
-	// debug out addrs
-	log.Debug().Msgf("total addrs %v", len(addrs))
 	// iterate over addrs and log out
 	for _, addr := range addrs {
 		log.Debug().Msgf("addr %v", addr)
@@ -109,7 +107,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 	var publicKeyActions PublicKeyActions
 	restartBulkLoad := false
 	events, err := client.GetEventsForHeightRange(context, query)
-	log.Debug().Msgf("evennts %v", len(events))
+	log.Debug().Msgf("events %v", len(events))
 	if err != nil {
 		log.Warn().Err(err).Msgf("retrying get events in block range %d %d", query.StartHeight, query.EndHeight)
 		// break up query into smaller chunks
