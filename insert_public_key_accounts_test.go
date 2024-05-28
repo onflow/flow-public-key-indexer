@@ -2,7 +2,6 @@ package main
 
 import (
 	"example/flow-key-indexer/pkg/pg"
-	"fmt"
 	logger "log"
 	"testing"
 
@@ -12,8 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// TestAdd tests the Add function.
-func TestAdd(t *testing.T) {
+func TestDuplicatedKeys(t *testing.T) {
 	var p Params
 	err := envconfig.Process("KEYIDX", &p)
 	if err != nil {
@@ -71,9 +69,6 @@ func TestAdd(t *testing.T) {
 	checkKey1, _ := db.GetAccountsByPublicKey("publicKey1")
 	checkKey2, _ := db.GetAccountsByPublicKey("publicKey2")
 	checkKey3, _ := db.GetAccountsByPublicKey("publicKey3")
-	fmt.Println(checkKey1)
-	fmt.Println(checkKey2)
-	fmt.Println(checkKey3)
 
 	if len(checkKey1.Accounts) != 1 || len(checkKey2.Accounts) != 2 || len(checkKey3.Accounts) != 1 {
 		t.Errorf("Error inserting public keys")
