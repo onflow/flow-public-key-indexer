@@ -1,10 +1,12 @@
 name: "Deploy to Cloud Run"
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
-      # - main
-      - robust-insert-keys
+      - main
 
 env:
   DOCKER_IMAGE_URL: ${{ vars.GCP_DOCKER_IMAGE_URL }}:${{ github.sha }}
@@ -38,15 +40,6 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: 1.21
-      # - name: Cache Go modules
-      #   uses: actions/cache@v4
-      #   with:
-      #     path: |
-      #       ~/.cache/go-build
-      #       ~/go/pkg/mod
-      #     key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-      #     restore-keys: |
-      #       ${{ runner.os }}-go-
       - name: Install dependencies
         run: go mod tidy
       - name: Run tests
@@ -58,76 +51,76 @@ jobs:
           KEYIDX_POSTGRESQLDATABASE: keyindexer
         run: go test ./... -v
 
-  # build:
-  #   needs: [test]
-  #   runs-on: ubuntu-latest
-  #   permissions:
-  #     id-token: write
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v3
+  build:
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
 
-  #     - name: Google auth
-  #       id: auth
-  #       uses: google-github-actions/auth@v2
-  #       with:
-  #         token_format: 'access_token'
-  #         workload_identity_provider: ${{ vars.BUILDER_WORKLOAD_IDENTITY_PROVIDER }}
-  #         service_account: ${{ vars.BUILDER_SERVICE_ACCOUNT }}
+      - name: Google auth
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: 'access_token'
+          workload_identity_provider: ${{ vars.BUILDER_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.BUILDER_SERVICE_ACCOUNT }}
       
-  #     - name: Set up Cloud SDK
-  #       uses: google-github-actions/setup-gcloud@v1
-  #       with:
-  #         project_id: ${{ vars.GAR_PROJECT_ID }}
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ vars.GAR_PROJECT_ID }}
       
-  #     - name: Docker Auth
-  #       run: |-
-  #         gcloud auth configure-docker ${{ vars.GAR_LOCATION }}-docker.pkg.dev
-  #         docker build -t ${{ env.DOCKER_IMAGE_URL }} --file Dockerfile .
-  #         docker push ${{ env.DOCKER_IMAGE_URL }}
+      - name: Docker Auth
+        run: |-
+          gcloud auth configure-docker ${{ vars.GAR_LOCATION }}-docker.pkg.dev
+          docker build -t ${{ env.DOCKER_IMAGE_URL }} --file Dockerfile .
+          docker push ${{ env.DOCKER_IMAGE_URL }}
       
-  # deploy-staging:
-  #   needs: [build]
-  #   environment: staging
-  #   runs-on: ubuntu-latest
-  #   permissions:
-  #     id-token: write
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v3
+  deploy-staging:
+    needs: [build]
+    environment: staging
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
 
-  #     - name: Google auth
-  #       id: auth
-  #       uses: google-github-actions/auth@v2
-  #       with:
-  #         token_format: 'access_token'
-  #         workload_identity_provider: ${{ vars.DEPLOYER_GCP_WORKLOAD_IDENTITY_PROVIDER }}
-  #         service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
-  #     - name: Deploy to Cloud Run
-  #       uses: google-github-actions/deploy-cloudrun@v1
-  #       with:
-  #         service: ${{ vars.GCP_SERVICE }}
-  #         image: ${{ env.DOCKER_IMAGE_URL }}
+      - name: Google auth
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: 'access_token'
+          workload_identity_provider: ${{ vars.DEPLOYER_GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v1
+        with:
+          service: ${{ vars.GCP_SERVICE }}
+          image: ${{ env.DOCKER_IMAGE_URL }}
 
-  # deploy-production:
-  #   needs: [build]
-  #   environment: production
-  #   runs-on: ubuntu-latest
-  #   permissions:
-  #     id-token: write
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v3
+  deploy-production:
+    needs: [build]
+    environment: production
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
 
-  #     - name: Google auth
-  #       id: auth
-  #       uses: google-github-actions/auth@v2
-  #       with:
-  #         token_format: 'access_token'
-  #         workload_identity_provider: ${{ vars.DEPLOYER_GCP_WORKLOAD_IDENTITY_PROVIDER }}
-  #         service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
-  #     - name: Deploy to Cloud Run
-  #       uses: google-github-actions/deploy-cloudrun@v1
-  #       with:
-  #         service: ${{ vars.GCP_SERVICE }}
-  #         image: ${{ env.DOCKER_IMAGE_URL }}
+      - name: Google auth
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: 'access_token'
+          workload_identity_provider: ${{ vars.DEPLOYER_GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v1
+        with:
+          service: ${{ vars.GCP_SERVICE }}
+          image: ${{ env.DOCKER_IMAGE_URL }}
