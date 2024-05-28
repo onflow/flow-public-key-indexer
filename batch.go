@@ -68,13 +68,9 @@ func GetAllAddresses(
 	log zerolog.Logger,
 	conf Config,
 	addressChan chan []flow.Address,
+	currentBlock *flow.BlockHeader,
 ) (height uint64, err error) {
 	flowClient := getFlowClient(conf.FlowAccessNodeURLs[0])
-
-	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
-	if err != nil {
-		return 0, err
-	}
 
 	ap, err := InitAddressProvider(ctx, log, conf.ChainID, currentBlock.ID, flowClient, conf.Pause)
 	if err != nil {
@@ -84,7 +80,6 @@ func GetAllAddresses(
 
 	return currentBlock.Height, nil
 }
-
 func RunAddressCadenceScript(
 	ctx context.Context,
 	log zerolog.Logger,
@@ -96,6 +91,9 @@ func RunAddressCadenceScript(
 	code := []byte(script)
 	flowUrl := conf.FlowAccessNodeURLs[0] // use first flow client url
 	flowClient := getFlowClient(flowUrl)
+	if flowClient == nil {
+		return 0, fmt.Errorf("failed to initialize flow client")
+	}
 
 	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
 	if err != nil {
@@ -105,6 +103,10 @@ func RunAddressCadenceScript(
 	go func() {
 		// Each worker has a separate Flow client
 		client := getFlowClient(flowUrl)
+		if client == nil {
+			log.Error().Msg("failed to initialize flow client in worker")
+			return
+		}
 		defer func() {
 			err = client.Close()
 			if err != nil {
@@ -119,6 +121,7 @@ func RunAddressCadenceScript(
 		// and pass the result to the handler
 
 		for accountAddresses := range addressChan {
+			log.Debug().Msgf("running script with %d addresses", len(accountAddresses))
 			runScript(ctx, conf, accountAddresses, log, code, flowClient, handler)
 		}
 	}()
@@ -135,10 +138,20 @@ func runScript(
 	flowClient *flowclient.Client,
 	handler func(cadence.Value, uint64),
 ) {
-	currentBlock, _ := getBlockHeight(ctx, conf, flowClient)
+	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get block height")
+		return
+	}
+
 	accountsCadenceValues := convertAddresses(addresses)
 	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.maxAcctKeys), cadence.NewBool(conf.ignoreZeroWeight), cadence.NewBool(conf.ignoreRevoked)}
+
 	result, err, rerun := retryScriptUntilSuccess(ctx, log, currentBlock.Height, script, arguments, flowClient, conf.Pause)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to execute script")
+		return
+	}
 
 	if rerun {
 		log.Error().Err(err).Msgf("reducing num accounts. (%d addr)", len(accountsCadenceValues))

@@ -129,7 +129,7 @@ func (s *DataLoader) SetupAddressLoader(addressChan chan []flow.Address) (uint64
 	return blockHeight, err
 }
 
-func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) error {
+func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address, block *flow.BlockHeader) error {
 	config := DefaultConfig
 	config.FlowAccessNodeURLs = s.config.AllFlowUrls
 	config.ChainID = flow.ChainID(s.config.ChainId)
@@ -139,22 +139,21 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) erro
 	config.maxAcctKeys = s.config.MaxAcctKeys
 	config.Pause = time.Duration(s.config.FetchSlowDownMs * int(time.Millisecond))
 
-	s.DB.UpdateUpdatedBlockHeight(0) // indicates bulk loading
-	height, err := GetAllAddresses(context.Background(), log.Logger, config, addressChan)
-	// save height for next load time
-	s.DB.UpdateUpdatedBlockHeight(height)
+	_, err := GetAllAddresses(context.Background(), log.Logger, config, addressChan, block)
 	return err
 }
 
-func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLoading bool, blockHeight uint64) (int, bool) {
+func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, blockHeight uint64) (int, bool) {
 	pkAddrActions, currBlockHeight, restart, err := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
 	if err != nil {
 		return 0, restart
 	}
 
-	s.DB.UpdateLoadingBlockHeight(currBlockHeight)
+	s.DB.UpdatePendingBlockHeight(currBlockHeight)
 	var addresses []flow.Address
 	// filter out empty Public keys and send account addresses to get processed
+	// debug log num addresses found
+	log.Debug().Msgf("found %d addresses", len(pkAddrActions))
 	for _, addrPkAction := range pkAddrActions {
 		for _, address := range addrPkAction.addresses {
 			// reload these addresses to get all account data
@@ -170,6 +169,7 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLo
 
 	if len(addresses) > 0 {
 		// processing account key address
+		log.Debug().Msgf("bb found %d addresses", len(addresses))
 		addressChan <- unique(addresses)
 	}
 

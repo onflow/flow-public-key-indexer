@@ -72,6 +72,12 @@ func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlock
 	}
 
 	addrs, restartDataLoader := fa.GetEventAddresses(flowUrls, chunksEvents)
+	// debug out addrs
+	log.Debug().Msgf("total addrs %v", len(addrs))
+	// iterate over addrs and log out
+	for _, addr := range addrs {
+		log.Debug().Msgf("addr %v", addr)
+	}
 	return addrs, BlockHeight, restartDataLoader, nil
 }
 
@@ -103,6 +109,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 	var publicKeyActions PublicKeyActions
 	restartBulkLoad := false
 	events, err := client.GetEventsForHeightRange(context, query)
+	log.Debug().Msgf("evennts %v", len(events))
 	if err != nil {
 		log.Warn().Err(err).Msgf("retrying get events in block range %d %d", query.StartHeight, query.EndHeight)
 		// break up query into smaller chunks
@@ -117,6 +124,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 	}
 	for _, event := range events {
 		for _, evt := range event.Events {
+			log.Debug().Msgf("event type %v", evt.Type)
 			var pkAddr PublicKeyEvent
 			payload, err := jsoncdc.Decode(evt.Payload)
 			if err != nil {
@@ -128,22 +136,14 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 				log.Warn().Msgf("could not decode event payload")
 				continue
 			}
-			// field 0 is account address
-			address := addEvent.Fields[0].String()
-			// field 1 is public key
-			pkValues, isOld := addEvent.Fields[1].(cadence.Array)
-			if isOld {
-				// old add account key format
-				var dError error
-				pkAddr, dError = CreatePublicKeyFromEvent(pkValues, address)
-				if dError != nil {
-					continue
-				}
-				if evt.Type == "flow.AccountKeyRemoved" {
-					publicKeyActions.removes = append(publicKeyActions.removes, pkAddr)
-				}
+			var address string
+			if evt.Type == "flow.AccountKeyAdded" {
+				address = addEvent.Fields[0].String()
+				publicKeyActions.addresses = append(publicKeyActions.addresses, address)
 			}
-			publicKeyActions.addresses = append(publicKeyActions.addresses, address)
+			if evt.Type == "flow.AccountKeyRemoved" {
+				publicKeyActions.removes = append(publicKeyActions.removes, pkAddr)
+			}
 		}
 	}
 	log.Debug().Msgf("total addrs %v, remove addrs %v", len(publicKeyActions.addresses), len(publicKeyActions.removes))

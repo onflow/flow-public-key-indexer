@@ -3,7 +3,6 @@ package pg
 import (
 	"context"
 	"example/flow-key-indexer/model"
-	"fmt"
 
 	_ "github.com/golang-migrate/migrate/database/postgres"
 	_ "github.com/golang-migrate/migrate/source/file"
@@ -50,11 +49,10 @@ func (s Store) Stats() model.PublicKeyStatus {
 		IsBulkLoading:  isBulkLoading,
 	}
 }
-
 func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) error {
 	ctx := context.Background()
-	err := s.db.RunInTransaction(ctx, func(ctx context.Context) error {
-
+	log.Debug().Msgf("Inserting %v public key accounts", len(pkis))
+	err := s.db.RunInTransaction(ctx, func(txCtx context.Context) error {
 		for _, publicKeyAccount := range pkis {
 
 			err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&publicKeyAccount).Error
@@ -75,8 +73,8 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 }
 
 func (s Store) UpdateUpdatedBlockHeight(blockNumber uint64) {
-	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET updatedBlockheight = %v`, blockNumber)
-	err := s.db.Raw(sqlStatement, blockNumber).Error
+	sqlStatement := "UPDATE publickeyindexer_stats SET updatedBlockheight = ?"
+	err := s.db.Exec(sqlStatement, blockNumber).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update updated block height %v", blockNumber)
 	}
@@ -121,8 +119,8 @@ func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 
 func (s Store) UpdateDistinctCount() {
 	cnt, _ := s.GetCount()
-	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET uniquePublicKeys = %v`, cnt)
-	err := s.db.Raw(sqlStatement).Error
+	sqlStatement := `UPDATE publickeyindexer_stats SET uniquePublicKeys = ?`
+	err := s.db.Exec(sqlStatement, cnt).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update unique public keys %v", cnt)
 	}
@@ -140,17 +138,17 @@ func (s Store) GetCount() (int, error) {
 	return cnt, nil
 }
 
-func (s Store) UpdateLoadingBlockHeight(blockNumber uint64) {
-	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET pendingBlockheight = %v`, blockNumber)
+func (s Store) UpdatePendingBlockHeight(blockNumber uint64) {
+	sqlStatement := `UPDATE publickeyindexer_stats SET pendingBlockheight = ?`
 
-	err := s.db.Raw(sqlStatement).Error
+	err := s.db.Exec(sqlStatement, blockNumber).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update loading block height %v", blockNumber)
 	}
 
 }
 
-func (s Store) GetLoadingBlockHeight() (uint64, error) {
+func (s Store) GetPendingBlockHeight() (uint64, error) {
 	query := "SELECT pendingBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
 

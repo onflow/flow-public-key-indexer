@@ -1,0 +1,199 @@
+{
+	"networks": {
+		"emulator": "127.0.0.1:3569",
+		"mainnet": "access.mainnet.nodes.onflow.org:9000",
+		"testing": "127.0.0.1:3569",
+		"testnet": "access.devnet.nodes.onflow.org:9000"
+	},
+	"accounts": {
+		" joe": {
+			"address": "30f4946d3ed50571",
+			"key": {
+				"type": "file",
+				"location": " joe.pkey"
+			}
+		},
+		"aaaa": {
+			"address": "c0bf670c59c07f82",
+			"key": {
+				"type": "file",
+				"location": "aaaa.pkey"
+			}
+		},
+		"bbbbbb": {
+			"address": "d37e1b7326852779",
+			"key": {
+				"type": "file",
+				"location": "bbbbbb.pkey"
+			}
+		},
+		"bob": {
+			"address": "2335e81241905d8a",
+			"key": {
+				"type": "file",
+				"location": "bob.pkey"
+			}
+		},
+		"cccc": {
+			"address": "3719a2ae377f27a6",
+			"key": {
+				"type": "file",
+				"location": "cccc.pkey"
+			}
+		},
+		"eeeeee": {
+			"address": "d85429eaea005950",
+			"key": {
+				"type": "file",
+				"location": "eeeeee.pkey"
+			}
+		},
+		"eger": {
+			"address": "39a6897b1dbb0b15",
+			"key": {
+				"type": "file",
+				"location": "eger.pkey"
+			}
+		},
+		"emulator-account": {
+			"address": "f8d6e0586b0a20c7",
+			"key": {
+				"type": "file",
+				"location": "emulator-account.pkey"
+			}
+		},
+		"hue": {
+			"address": "f76c5bf09e29fac3",
+			"key": {
+				"type": "file",
+				"location": "hue.pkey"
+			}
+		},
+		"hyujh ": {
+			"address": "da9ea54c99249dfc",
+			"key": {
+				"type": "file",
+				"location": "hyujh .pkey"
+			}
+		},
+		"john": {
+			"address": "3bdea6f4f2507b58",
+			"key": {
+				"type": "file",
+				"location": "john.pkey"
+			}
+		},
+		"jonny": {
+			"address": "130be22d8fd3fa1c",
+			"key": {
+				"type": "file",
+				"location": "jonny.pkey"
+			}
+		},
+		"kirk": {
+			"address": "d4932db02f2f05ae",
+			"key": {
+				"type": "file",
+				"location": "kirk.pkey"
+			}
+		},
+		"ned": {
+			"address": "26a0f15ea7d10f10",
+			"key": {
+				"type": "file",
+				"location": "ned.pkey"
+			}
+		},
+		"nwmi": {
+			"address": "28ad79a211da9742",
+			"key": {
+				"type": "file",
+				"location": "nwmi.pkey"
+			}
+		},
+		"og": {
+			"address": "328cbbe2d13e753c",
+			"key": {
+				"type": "file",
+				"location": "og.pkey"
+			}
+		},
+		"opop": {
+			"address": "c7e0f2e6cca5e9b4",
+			"key": {
+				"type": "file",
+				"location": "opop.pkey"
+			}
+		},
+		"sid": {
+			"address": "ddc130a60c410bca",
+			"key": {
+				"type": "file",
+				"location": "sid.pkey"
+			}
+		},
+		"ssssss": {
+			"address": "3c339037fbfa598f",
+			"key": {
+				"type": "file",
+				"location": "ssssss.pkey"
+			}
+		},
+		"sue": {
+			"address": "dfb91f29e3aa7b87",
+			"key": {
+				"type": "file",
+				"location": "sue.pkey"
+			}
+		},
+		"uiii": {
+			"address": "24d8ded1483a7f5d",
+			"key": {
+				"type": "file",
+				"location": "uiii.pkey"
+			}
+		},
+		"uio": {
+			"address": "cccac07f0020979d",
+			"key": {
+				"type": "file",
+				"location": "uio.pkey"
+			}
+		},
+		"uuhh": {
+			"address": "35d32e08445be30a",
+			"key": {
+				"type": "file",
+				"location": "uuhh.pkey"
+			}
+		},
+		"uuuuuu": {
+			"address": "c52a7e40bf812d18",
+			"key": {
+				"type": "file",
+				"location": "uuuuuu.pkey"
+			}
+		},
+		"wwqqqq": {
+			"address": "d1b497d555a1e3d5",
+			"key": {
+				"type": "file",
+				"location": "wwqqqq.pkey"
+			}
+		},
+		"wwwww": {
+			"address": "2a67f50462fe53ee",
+			"key": {
+				"type": "file",
+				"location": "wwwww.pkey"
+			}
+		},
+		"yhyhy": {
+			"address": "23874b3bdd5fe96b",
+			"key": {
+				"type": "file",
+				"location": "yhyhy.pkey"
+			}
+		}
+	}
+}
