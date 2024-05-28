@@ -3,21 +3,29 @@ package main
 import (
 	"example/flow-key-indexer/pkg/pg"
 	"fmt"
+	logger "log"
 	"testing"
 
 	"example/flow-key-indexer/model"
 
+	"github.com/axiomzen/envconfig"
 	"github.com/rs/zerolog/log"
 )
 
 // TestAdd tests the Add function.
 func TestAdd(t *testing.T) {
+	var p Params
+	err := envconfig.Process("KEYIDX", &p)
+	if err != nil {
+		logger.Fatal(err.Error())
+	}
+
 	dbConfig := pg.DatabaseConfig{
-		Host:     "localhost",
-		Password: "password",
-		Name:     "key-indexer",
-		User:     "postgres",
-		Port:     5432,
+		Host:     p.PostgreSQLHost,
+		Password: p.PostgreSQLPassword,
+		Name:     p.PostgreSQLDatabase,
+		User:     p.PostgreSQLUsername,
+		Port:     int(p.PostgreSQLPort),
 	}
 	db := pg.NewStore(dbConfig, log.Logger)
 	_ = db.Start(true)
