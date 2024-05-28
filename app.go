@@ -86,20 +86,25 @@ func (a *App) Run() {
 	if currentBlock.Height == 0 {
 		log.Error().Msg("Could not get current block height")
 	}
+
 	startingBlockHeight := currentBlock.Height - uint64(a.p.MaxBlockRange)
 	log.Info().Msgf("Load, %d start block %d \n", currentBlock.Height, startingBlockHeight)
-	a.DB.UpdatePendingBlockHeight(startingBlockHeight) //186356930
-	a.DB.UpdateUpdatedBlockHeight(startingBlockHeight) //186356881
+
+	a.DB.UpdatePendingBlockHeight(startingBlockHeight)
+	a.DB.UpdateUpdatedBlockHeight(startingBlockHeight)
+
 	log.Debug().Msgf("Current block from server %v", currentBlock)
+
 	if err != nil {
 		log.Error().Err(err).Msg("Could not get current block height")
 	}
 
-	ProcessAddressChannel(context.Background(), log.Logger, a.flowClient.Client, a.p.BlockPolIntervalSec, addressChan, a.DB.InsertPublicKeyAccounts)
+	// start up process to handle addresses that are put in addressChan channel
+	ProcessAddressChannel(context.Background(), log.Logger, a.flowClient.Client, a.p.BlockPolIntervalSec, addressChan, a.DB.InsertPublicKeyAccounts, a.DB.AddressesNotInDatabase)
+
 	if a.p.EnableSyncData {
 		log.Info().Msgf("Data Sync service is enabled")
-
-		go func() { a.loadPublicKeyData(addressChan, currentBlock) }()
+		go a.bulkLoad(addressChan, currentBlock)
 	}
 
 	if a.p.EnableIncremental {
@@ -132,20 +137,22 @@ func (a *App) loadIncrementalData(addressChan chan []flow.Address) {
 	}()
 }
 
-func (a *App) loadPublicKeyData(addressChan chan []flow.Address, currentBlock *flow.BlockHeader) {
-	go a.bulkLoad(addressChan, currentBlock)
-}
-
 func (a *App) bulkLoad(addressChan chan []flow.Address, currentBlock *flow.BlockHeader) {
-	start := time.Now()
-	log.Info().Msg("Start Bulk Key Load")
-	errLoad := a.dataLoader.RunAllAddressesLoader(addressChan, currentBlock)
+	// continuously run the bulk load process
+	for {
+		start := time.Now()
+		log.Info().Msg("Start Bulk Key Load")
+		errLoad := a.dataLoader.RunAllAddressesLoader(addressChan, currentBlock)
 
-	if errLoad != nil {
-		log.Error().Err(errLoad).Msg("could not bulk load public keys")
+		if errLoad != nil {
+			log.Error().Err(errLoad).Msg("could not bulk load public keys")
+		}
+		duration := time.Since(start)
+		log.Info().Msgf("End Bulk Load, duration %f min", duration.Minutes())
+
+		// Add a delay if needed to prevent it from running too frequently
+		time.Sleep(10 * time.Minute) // Adjust the sleep duration as needed
 	}
-	duration := time.Since(start)
-	log.Info().Msgf("End Bulk Load, duration %f min", duration.Minutes())
 }
 
 func (a *App) incrementalLoad(addressChan chan []flow.Address) {

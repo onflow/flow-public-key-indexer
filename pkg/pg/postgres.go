@@ -49,6 +49,7 @@ func (s Store) Stats() model.PublicKeyStatus {
 		IsBulkLoading:  isBulkLoading,
 	}
 }
+
 func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) error {
 	ctx := context.Background()
 	log.Debug().Msgf("Inserting %v public key accounts", len(pkis))
@@ -72,6 +73,30 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 	// update the distinct count
 	s.UpdateDistinctCount()
 	return nil
+}
+
+func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
+	var existingAddresses []string
+	err := s.db.Model(&model.PublicKeyAccountIndexer{}).Where("account IN ?", addresses).Pluck("account", &existingAddresses).Error
+	if err != nil {
+		log.Debug().Err(err).Msg("Error checking if accounts exist")
+		return nil, err
+	}
+	s.logger.Debug().Msgf("existing addresses %v", len(addresses))
+	addressMap := make(map[string]bool)
+	for _, addr := range existingAddresses {
+		addressMap[addr] = true
+	}
+
+	var nonExistingAddresses []string
+	for _, addr := range addresses {
+		if !addressMap[addr] {
+			nonExistingAddresses = append(nonExistingAddresses, addr)
+		}
+	}
+
+	s.logger.Debug().Msgf("returning addresses %v", len(existingAddresses))
+	return nonExistingAddresses, nil
 }
 
 func (s Store) UpdateUpdatedBlockHeight(blockNumber uint64) {
@@ -162,12 +187,12 @@ func (s Store) GetPendingBlockHeight() (uint64, error) {
 	return blockNumber, nil
 }
 
-func (s Store) RemovePublicKeyInfo(publicKey string, account string) {
-	s.logger.Debug().Msgf("remove pk and acct %v %v", publicKey, account)
-	sqlStatement := `DELETE FROM publickeyindexer WHERE publickey = $1 and account = $2;`
-	err := s.db.Raw(sqlStatement, publicKey, account).Error
+func (s Store) RemoveAccountForReloading(account string) {
+	s.logger.Debug().Msgf("remove pk and acct %v", account)
+	sqlStatement := `DELETE FROM publickeyindexer WHERE account = $2;`
+	err := s.db.Raw(sqlStatement, account).Error
 	if err != nil {
-		s.logger.Warn().Msgf("Could not remove record %v %v", account, publicKey)
+		s.logger.Warn().Msgf("Could not remove record %v", account)
 	}
 }
 

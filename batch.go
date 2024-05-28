@@ -87,6 +87,7 @@ func ProcessAddressChannel(
 	pauseInterval int,
 	addressChan chan []flow.Address,
 	handler func([]model.PublicKeyAccountIndexer) error,
+	filter func([]string) ([]string, error),
 ) error {
 	if client == nil {
 		return fmt.Errorf("failed to initialize flow client")
@@ -97,9 +98,18 @@ func ProcessAddressChannel(
 		for accountAddresses := range addressChan {
 			var keys []model.PublicKeyAccountIndexer
 			log.Debug().Msgf("running script with %d addresses", len(accountAddresses))
+			var addrs []string
+			// convert flow.Address to string
+			for _, addr := range accountAddresses {
+				addrs = append(addrs, addr.String())
+			}
+			accountAddresses, err := filter(addrs)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to filter addresses")
+			}
 			for _, addr := range accountAddresses {
 				log.Debug().Msgf("getAccount with address: %v", addr)
-				acct, err := client.GetAccount(ctx, addr)
+				acct, err := client.GetAccount(ctx, flow.HexToAddress(addr))
 				if err != nil {
 					log.Error().Err(err).Msg("failed to run script")
 				}
@@ -107,14 +117,14 @@ func ProcessAddressChannel(
 				for _, key := range acct.Keys {
 					keys = append(keys, model.PublicKeyAccountIndexer{
 						PublicKey: key.PublicKey.String(),
-						Account:   addr.String(),
+						Account:   addr,
 						Weight:    key.Weight,
 						KeyId:     key.Index,
 					})
 				}
 			}
-			err := handler(keys)
-			if err != nil {
+			errHandler := handler(keys)
+			if errHandler != nil {
 				log.Error().Err(err).Msg("failed to handle keys")
 			}
 

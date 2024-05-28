@@ -120,7 +120,6 @@ func InitAddressProvider(
 // 3. (4,8): check address (8 - 4) / 2 = 6  address exists so next pair is (6,8)
 // 4. (6,8): check address 7 address exists so next pair is (7,8)
 // 5. (7,8): check address (8 - 7) / 2 = 7 ... ok already checked so this is the last existing address
-//
 func (p *AddressProvider) getLastAddress(
 	lowerIndex uint,
 	upperIndex uint,
@@ -217,37 +216,6 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 			break
 		}
 	}
-}
-
-func BatchAddresses(addresses []flow.Address, batchSize int) [][]flow.Address {
-	var done bool
-	var batches [][]flow.Address
-	for {
-		addrs := make([]flow.Address, 0)
-
-		for i := 0; i < batchSize; i++ {
-			if i >= len(addresses) {
-				// Out of bounds, there are no more addresses
-				done = true
-				break
-			}
-			addr := addresses[i]
-			// Skip address if known broken
-			if _, ok := brokenAddresses[addr]; ok {
-				i--
-				continue
-			}
-			addrs = append(addrs, addr)
-		}
-		if len(addresses) > 0 {
-			batches = append(batches, addrs)
-		}
-
-		if done {
-			break
-		}
-	}
-	return batches
 }
 
 func (p *AddressProvider) LastAddress() flow.Address {

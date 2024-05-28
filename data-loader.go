@@ -22,7 +22,6 @@ import (
 	"context"
 	_ "embed"
 	"example/flow-key-indexer/pkg/pg"
-	"math/big"
 	"time"
 
 	"github.com/onflow/flow-go-sdk"
@@ -37,23 +36,12 @@ type DataLoader struct {
 }
 
 type PublicKeyActions struct {
-	removes   []PublicKeyEvent
 	addresses []string
 }
 
 type PublicKeyEvent struct {
 	publicKey string
 	account   string
-}
-
-type PublicKey struct {
-	hashAlgorithm      uint8
-	isRevoked          bool
-	weight             uint64
-	keyIndex           *big.Int
-	publicKey          string
-	signatureAlgorithm uint8
-	account            string
 }
 
 func NewDataLoader(DB pg.Store, fa FlowAdapter, p Params) *DataLoader {
@@ -91,14 +79,8 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, bloc
 	log.Debug().Msgf("found %d addresses", len(pkAddrActions))
 	for _, addrPkAction := range pkAddrActions {
 		for _, address := range addrPkAction.addresses {
-			// reload these addresses to get all account data
+			s.DB.RemoveAccountForReloading(address)
 			addresses = append(addresses, flow.HexToAddress(address))
-		}
-		for _, removal := range addrPkAction.removes {
-			if removal.publicKey != "" {
-				log.Debug().Msgf("removing %v %v", removal.publicKey, removal.account)
-				s.DB.RemovePublicKeyInfo(removal.publicKey, removal.account)
-			}
 		}
 	}
 

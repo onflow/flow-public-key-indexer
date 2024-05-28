@@ -14,6 +14,7 @@ import (
 	"github.com/onflow/flow-go-sdk"
 	"github.com/onflow/flow-go-sdk/client"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/encoding/gzip"
 )
 
 type FlowAdapter struct {
@@ -27,9 +28,16 @@ func NewFlowClient(url string) *FlowAdapter {
 	adapter.Context = context.Background()
 	// any reason to pass this as an arg instead?
 	adapter.URL = url
-
+	opts := []grpc.DialOption{
+		grpc.WithInsecure(),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(16*1024*1024), // 16 MB
+			grpc.MaxCallSendMsgSize(16*1024*1024), // 16 MB
+		),
+		grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)), // Optional: Use compression
+	}
 	// create flow client
-	FlowClient, err := client.New(strings.TrimSpace(adapter.URL), grpc.WithInsecure())
+	FlowClient, err := client.New(strings.TrimSpace(adapter.URL), opts...)
 	if err != nil {
 		log.Panic().Msgf("failed to connect to %s", adapter.URL)
 	}
@@ -140,24 +148,12 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 				publicKeyActions.addresses = append(publicKeyActions.addresses, address)
 			}
 			if evt.Type == "flow.AccountKeyRemoved" {
-				publicKeyActions.removes = append(publicKeyActions.removes, pkAddr)
+				publicKeyActions.addresses = append(publicKeyActions.addresses, pkAddr.account)
 			}
 		}
 	}
-	log.Debug().Msgf("total addrs %v, remove addrs %v", len(publicKeyActions.addresses), len(publicKeyActions.removes))
+	log.Debug().Msgf("total addrs %v affected", len(publicKeyActions.addresses))
 	return publicKeyActions, restartBulkLoad
-}
-
-func CreatePublicKeyFromEvent(cadenceArr cadence.Array, address string) (PublicKeyEvent, error) {
-	pkBytes := ByteArrayValueToByteSlice(cadenceArr)
-	publicKeyValue, decodeErr := flow.DecodeAccountKey(pkBytes)
-	if decodeErr != nil {
-		log.Warn().Msgf("could not decode public key %v", decodeErr.Error())
-		return PublicKeyEvent{}, decodeErr
-	}
-	pk := Trim0x(publicKeyValue.PublicKey.String())
-	pkAddr := PublicKeyEvent{pk, address}
-	return pkAddr, nil
 }
 
 func ByteArrayValueToByteSlice(array cadence.Array) (result []byte) {
