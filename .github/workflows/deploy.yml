@@ -18,8 +18,8 @@ jobs:
         image: postgres
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: testdb
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: keyindexer
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -55,7 +55,7 @@ jobs:
           KEYIDX_POSTGRESQLPORT: 5432
           KEYIDX_POSTGRESQLUSERNAME: postgres
           KEYIDX_POSTGRESQLPASSWORD: password
-          KEYIDX_POSTGRESQLDATABASE: testdb
+          KEYIDX_POSTGRESQLDATABASE: keyindexer
         run: go test ./... -v
 
   # build:
