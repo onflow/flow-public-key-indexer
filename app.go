@@ -152,7 +152,7 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 	start := time.Now()
 	pendingBlkHeight, _ := a.DB.GetPendingBlockHeight()
 
-	log.Info().Msgf("Inc Load, %d start block \n", pendingBlkHeight)
+	log.Info().Msgf("Inc Load, %d start block", pendingBlkHeight)
 
 	var blockHeight uint64
 	var err error
