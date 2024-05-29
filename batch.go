@@ -94,6 +94,11 @@ func ProcessAddressChannel(
 	}
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Msgf("Recovered from panic: %v", r)
+			}
+		}()
 
 		for accountAddresses := range addressChan {
 			var keys []model.PublicKeyAccountIndexer
@@ -106,21 +111,42 @@ func ProcessAddressChannel(
 			accountAddresses, err := filter(addrs)
 			if err != nil {
 				log.Error().Err(err).Msg("failed to filter addresses")
+				continue
 			}
 			for _, addr := range accountAddresses {
 				log.Debug().Msgf("getAccount with address: %v", addr)
 				acct, err := client.GetAccount(ctx, flow.HexToAddress(addr))
 				if err != nil {
-					log.Error().Err(err).Msg("failed to run script")
+					log.Error().Err(err).Msg("failed to get account")
+					continue
 				}
-				log.Debug().Msgf("account address: %v", len(acct.Keys))
-				for _, key := range acct.Keys {
+				if acct == nil {
+					log.Debug().Msgf("account not found: %v", addr)
+					continue
+				}
+				if acct.Keys == nil {
+					log.Debug().Msgf("account has no keys: %v", addr)
+					continue
+				}
+				if len(acct.Keys) == 0 {
+					log.Debug().Msgf("account has no keys: %v", addr)
+					// save account with blank public key to avoid querying it again
 					keys = append(keys, model.PublicKeyAccountIndexer{
-						PublicKey: key.PublicKey.String(),
+						PublicKey: "blank",
 						Account:   addr,
-						Weight:    key.Weight,
-						KeyId:     key.Index,
+						Weight:    0,
+						KeyId:     0,
 					})
+				} else {
+					log.Debug().Msgf("account address: %v", len(acct.Keys))
+					for _, key := range acct.Keys {
+						keys = append(keys, model.PublicKeyAccountIndexer{
+							PublicKey: key.PublicKey.String(),
+							Account:   addr,
+							Weight:    key.Weight,
+							KeyId:     key.Index,
+						})
+					}
 				}
 			}
 			errHandler := handler(keys)
@@ -129,7 +155,7 @@ func ProcessAddressChannel(
 			}
 
 			// add wait time in seconds
-			time.Sleep(time.Duration(pauseInterval))
+			time.Sleep(time.Duration(pauseInterval) * time.Second)
 		}
 	}()
 
