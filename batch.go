@@ -23,7 +23,6 @@ import (
 	_ "embed"
 	"example/flow-key-indexer/model"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/onflow/flow-go-sdk"
@@ -168,18 +167,4 @@ func ProcessAddressChannel(
 	}()
 
 	return nil
-}
-
-func strip0xPrefix(str string) string {
-	if strings.HasPrefix(str, "0x") {
-		return str[2:]
-	}
-	return str
-}
-
-func add0xPrefix(s string) string {
-	if !strings.HasPrefix(s, "0x") {
-		return "0x" + s
-	}
-	return s
 }

@@ -206,3 +206,17 @@ func getPostgresConfig(conf Params, logger zerolog.Logger) pg.DatabaseConfig {
 		Port:     int(conf.PostgreSQLPort),
 	}
 }
+
+func strip0xPrefix(str string) string {
+	if strings.HasPrefix(str, "0x") {
+		return str[2:]
+	}
+	return str
+}
+
+func add0xPrefix(s string) string {
+	if !strings.HasPrefix(s, "0x") {
+		return "0x" + s
+	}
+	return s
+}
