@@ -113,6 +113,12 @@ func ProcessAddressChannel(
 				log.Error().Err(err).Msg("failed to filter addresses")
 				continue
 			}
+
+			log.Debug().Msgf("filtered addresses: %v", len(accountAddresses))
+			if len(accountAddresses) == 0 {
+				continue
+			}
+
 			for _, addr := range accountAddresses {
 				log.Debug().Msgf("getAccount with address: %v", addr)
 				acct, err := client.GetAccount(ctx, flow.HexToAddress(addr))

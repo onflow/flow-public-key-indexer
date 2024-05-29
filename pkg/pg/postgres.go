@@ -3,6 +3,7 @@ package pg
 import (
 	"context"
 	"example/flow-key-indexer/model"
+	"strings"
 
 	_ "github.com/golang-migrate/migrate/database/postgres"
 	_ "github.com/golang-migrate/migrate/source/file"
@@ -15,14 +16,14 @@ type Store struct {
 	conf   DatabaseConfig
 	logger zerolog.Logger
 	db     *Database
-	done   chan bool
+	done   chan struct{} // Semaphore channel to limit concurrency
 }
 
 func NewStore(conf DatabaseConfig, logger zerolog.Logger) *Store {
 	return &Store{
 		conf:   conf,
 		logger: logger,
-		done:   make(chan bool, 1),
+		done:   make(chan struct{}, 1), // Initialize semaphore with capacity 1
 	}
 }
 
@@ -35,7 +36,6 @@ func (s *Store) Start(purgeOnStart bool) error {
 
 	err = s.db.InitDatabase(purgeOnStart)
 	return err
-
 }
 
 func (s Store) Stats() model.PublicKeyStatus {
@@ -55,7 +55,6 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 	log.Debug().Msgf("Inserting %v public key accounts", len(pkis))
 	err := s.db.RunInTransaction(ctx, func(txCtx context.Context) error {
 		for _, publicKeyAccount := range pkis {
-
 			err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&publicKeyAccount).Error
 			if err != nil {
 				log.Debug().Err(err).Msg("Error inserting public key account record")
@@ -70,8 +69,9 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 		return err
 	}
 
-	// update the distinct count
-	s.UpdateDistinctCount()
+	// update the distinct count in a non-blocking way
+	go s.UpdateDistinctCount()
+
 	return nil
 }
 
@@ -82,7 +82,7 @@ func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
 		log.Debug().Err(err).Msg("Error checking if accounts exist")
 		return nil, err
 	}
-	s.logger.Debug().Msgf("existing addresses %v", len(addresses))
+	s.logger.Debug().Msgf("existing addresses %v", len(existingAddresses))
 	addressMap := make(map[string]bool)
 	for _, addr := range existingAddresses {
 		addressMap[addr] = true
@@ -95,7 +95,7 @@ func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
 		}
 	}
 
-	s.logger.Debug().Msgf("returning addresses %v", len(existingAddresses))
+	s.logger.Debug().Msgf("returning addresses %v", len(nonExistingAddresses))
 	return nonExistingAddresses, nil
 }
 
@@ -145,6 +145,13 @@ func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 }
 
 func (s Store) UpdateDistinctCount() {
+	// Acquire a slot in the semaphore
+	s.done <- struct{}{}
+	defer func() {
+		// Release the slot when finished
+		<-s.done
+	}()
+
 	cnt, _ := s.GetCount()
 	sqlStatement := `UPDATE publickeyindexer_stats SET uniquePublicKeys = ?`
 	err := s.db.Exec(sqlStatement, cnt).Error
@@ -172,7 +179,6 @@ func (s Store) UpdatePendingBlockHeight(blockNumber uint64) {
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update loading block height %v", blockNumber)
 	}
-
 }
 
 func (s Store) GetPendingBlockHeight() (uint64, error) {
@@ -198,6 +204,10 @@ func (s Store) RemoveAccountForReloading(account string) {
 
 func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer, error) {
 	var publickeys []model.PublicKeyAccountIndexer
+	// add 0x if does not exist
+	if !strings.HasPrefix(publicKey, "0x") {
+		publicKey = "0x" + publicKey
+	}
 	err := s.db.Where("publickey = ?", publicKey).Find(&publickeys).Error
 
 	if err != nil {

@@ -27,6 +27,13 @@
 				"location": "asdww.pkey"
 			}
 		},
+		"asedddd": {
+			"address": "bce4afa6cb0a8af3",
+			"key": {
+				"type": "file",
+				"location": "asedddd.pkey"
+			}
+		},
 		"bbbbbb": {
 			"address": "d37e1b7326852779",
 			"key": {
