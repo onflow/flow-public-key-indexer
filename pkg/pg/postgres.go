@@ -3,7 +3,6 @@ package pg
 import (
 	"context"
 	"example/flow-key-indexer/model"
-	"strings"
 
 	_ "github.com/golang-migrate/migrate/database/postgres"
 	_ "github.com/golang-migrate/migrate/source/file"
@@ -204,10 +203,6 @@ func (s Store) RemoveAccountForReloading(account string) {
 
 func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer, error) {
 	var publickeys []model.PublicKeyAccountIndexer
-	// add 0x if does not exist
-	if !strings.HasPrefix(publicKey, "0x") {
-		publicKey = "0x" + publicKey
-	}
 	err := s.db.Where("publickey = ?", publicKey).Find(&publickeys).Error
 
 	if err != nil {
