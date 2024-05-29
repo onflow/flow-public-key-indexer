@@ -24,7 +24,7 @@ func (PublicKeyAccountIndexer) TableName() string {
 
 type PublicKeyBlockHeight struct {
 	UpdatedBlockheight uint64 `gorm:"column:updatedBlockheight"`
-	LoadedBlockheight  uint64 `gorm:"column:loadedBlockheight"`
+	LoadToBlockHeight  uint64 `gorm:"column:pendingBlockheight"`
 }
 
 func (PublicKeyBlockHeight) TableName() string {

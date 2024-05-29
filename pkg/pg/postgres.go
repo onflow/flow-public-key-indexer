@@ -109,27 +109,25 @@ func (s Store) GetUpdatedBlockHeight() (uint64, error) {
 
 	return blockNumber, nil
 }
-
 func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
-	query := "SELECT uniquePublicKeys, updatedBlockheight, pendingBlockheight FROM publickeyindexer_stats;"
-	type Result struct {
-		UniquePublicKeys   int `gorm:"column:uniquepublickeys"`
-		UpdatedBlockheight int `gorm:"column:updatedblockheight"`
-		LoadedBlockheight  int `gorm:"column:loadedblockheight"`
-	}
+	query := "SELECT uniquePublicKeys FROM publickeyindexer_stats;"
 
-	var result Result
+	var uniquePublicKeys int
 
-	err := s.db.Raw(query).Scan(&result).Error
+	err := s.db.Raw(query).Scan(&uniquePublicKeys).Error
 	if err != nil {
-		s.logger.Error().Err(err).Msgf("get status %v", result.UniquePublicKeys)
+		s.logger.Error().Err(err).Msgf("get status %v", uniquePublicKeys)
 	}
+
+	// get pending block height, multi field select is having issues
+	pending, _ := s.GetLoadedBlockHeight()
 	status := model.PublicKeyStatus{
-		Count:         result.UniquePublicKeys,
-		LoadedToBlock: result.LoadedBlockheight,
+		Count:         uniquePublicKeys,
+		LoadedToBlock: int(pending),
 	}
 	return status, nil
 }
+
 func (s Store) UpdateDistinctCount() {
 	s.logger.Debug().Msg("UpdateDistinctCount called")
 	// Acquire a slot in the semaphore
