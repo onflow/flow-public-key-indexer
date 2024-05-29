@@ -3,7 +3,6 @@ package pg
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/url"
 	"strconv"
 	"strings"
@@ -158,12 +157,4 @@ func ToURL(port int, ssl bool, username, password, db, host string) string {
 		host + ":" +
 		strconv.Itoa(port) + "/" +
 		url.PathEscape(db) + mode
-}
-
-type logger struct {
-	log *log.Logger
-}
-
-func (l *logger) Printf(ctx context.Context, format string, v ...interface{}) {
-	l.log.Printf(format, v...)
 }
