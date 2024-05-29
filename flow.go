@@ -58,10 +58,10 @@ func (fa *FlowAdapter) GetCurrentBlockHeight() (uint64, error) {
 	return block.Height, nil
 }
 
-func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]PublicKeyActions, uint64, bool, error) {
+func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]string, uint64, bool, error) {
 	itemsPerRequest := 245 // access node can only handel 250
 	eventTypes := []string{"flow.AccountKeyAdded", "flow.AccountKeyRemoved"}
-	var addrActions []PublicKeyActions
+	var addrActions []string
 	restartBulkLoad := true
 	currentHeight, err := fa.GetCurrentBlockHeight()
 	if err != nil {
@@ -111,8 +111,8 @@ func ChunkEventRangeQuery(itemsPerRequest int, lowBlockHeight, highBlockHeight u
 	return chunks
 }
 
-func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) (PublicKeyActions, bool) {
-	var publicKeyActions PublicKeyActions
+func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) ([]string, bool) {
+	var allAccountAddresses []string
 	restartBulkLoad := false
 	events, err := client.GetEventsForHeightRange(context, query)
 	log.Debug().Msgf("events %v", len(events))
@@ -123,7 +123,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 			eventsRetry, errRetry := client.GetEventsForHeightRange(context, q)
 			if errRetry != nil {
 				log.Error().Err(errRetry).Msg("retrying get events failed")
-				return publicKeyActions, true
+				return allAccountAddresses, true
 			}
 			events = append(events, eventsRetry...)
 		}
@@ -145,15 +145,15 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 			var address string
 			if evt.Type == "flow.AccountKeyAdded" {
 				address = addEvent.Fields[0].String()
-				publicKeyActions.addresses = append(publicKeyActions.addresses, address)
+				allAccountAddresses = append(allAccountAddresses, address)
 			}
 			if evt.Type == "flow.AccountKeyRemoved" {
-				publicKeyActions.addresses = append(publicKeyActions.addresses, pkAddr.account)
+				allAccountAddresses = append(allAccountAddresses, pkAddr.account)
 			}
 		}
 	}
-	log.Debug().Msgf("total addrs %v affected", len(publicKeyActions.addresses))
-	return publicKeyActions, restartBulkLoad
+	log.Debug().Msgf("total addrs %v affected", len(allAccountAddresses))
+	return allAccountAddresses, restartBulkLoad
 }
 
 func ByteArrayValueToByteSlice(array cadence.Array) (result []byte) {
@@ -172,16 +172,16 @@ func Trim0x(hexString string) string {
 	return hexString
 }
 
-func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.EventRangeQuery) ([]PublicKeyActions, bool) {
-	var allPkAddrs []PublicKeyActions
+func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.EventRangeQuery) ([]string, bool) {
+	var allPkAddrs []string
 	restartBulkLoad := false
 	var wg sync.WaitGroup
 	eventRangeChan := make(chan client.EventRangeQuery)
-	publicKeyChan := make(chan PublicKeyActions)
+	publicKeyChan := make(chan string)
 
 	go func() {
-		for actions := range publicKeyChan {
-			allPkAddrs = append(allPkAddrs, actions)
+		for addrs := range publicKeyChan {
+			allPkAddrs = append(allPkAddrs, addrs)
 		}
 	}()
 
@@ -206,7 +206,9 @@ func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.Eve
 				if !restart {
 					restartBulkLoad = restart
 				}
-				publicKeyChan <- addrs
+				for _, addr := range addrs {
+					publicKeyChan <- addr
+				}
 				time.Sleep(500 * time.Millisecond) // give time for channel to process
 				wg.Done()
 			}

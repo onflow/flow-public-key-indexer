@@ -68,7 +68,7 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address, bloc
 }
 
 func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, blockHeight uint64) (uint64, error) {
-	pkAddrActions, currBlockHeight, _, err := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
+	accountAddresses, currBlockHeight, _, err := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
 	if err != nil {
 		return blockHeight, err
 	}
@@ -76,12 +76,10 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, bloc
 	var addresses []flow.Address
 	// filter out empty Public keys and send account addresses to get processed
 	// debug log num addresses found
-	log.Debug().Msgf("found %d addresses", len(pkAddrActions))
-	for _, addrPkAction := range pkAddrActions {
-		for _, address := range addrPkAction.addresses {
-			s.DB.RemoveAccountForReloading(address)
-			addresses = append(addresses, flow.HexToAddress(address))
-		}
+	log.Debug().Msgf("found %d addresses", len(accountAddresses))
+	for _, accountAddr := range accountAddresses {
+		s.DB.RemoveAccountForReloading(accountAddr)
+		addresses = append(addresses, flow.HexToAddress(accountAddr))
 	}
 
 	if len(addresses) > 0 {

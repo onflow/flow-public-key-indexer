@@ -88,7 +88,6 @@ func (a *App) Run() {
 	}
 
 	startingBlockHeight := currentBlock.Height - uint64(a.p.MaxBlockRange)
-	log.Info().Msgf("Load, %d start block %d \n", currentBlock.Height, startingBlockHeight)
 
 	a.DB.UpdatePendingBlockHeight(startingBlockHeight)
 	a.DB.UpdateUpdatedBlockHeight(startingBlockHeight)
