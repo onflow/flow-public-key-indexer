@@ -158,8 +158,6 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 	start := time.Now()
 	pendingBlkHeight, _ := a.DB.GetPendingBlockHeight()
 
-	log.Info().Msgf("Inc Load, %d start block", pendingBlkHeight)
-
 	var blockHeight uint64
 	var err error
 	blockHeight, err = a.dataLoader.RunIncAddressesLoader(addressChan, pendingBlkHeight)
@@ -177,7 +175,7 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 		a.DB.UpdatePendingBlockHeight(blockHeight)
 	}
 
-	log.Info().Msgf("Inc Load, %f sec, loading: %d (%d blockHeight)", duration.Seconds(), pendingBlkHeight, blockHeight)
+	log.Info().Msgf("Inc Load, %f sec, loaded from: %d (to %d blockHeight)", duration.Seconds(), pendingBlkHeight, blockHeight)
 }
 
 func setAllFlowUrls(params Params) []string {
