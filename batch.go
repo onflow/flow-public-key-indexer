@@ -23,6 +23,7 @@ import (
 	_ "embed"
 	"example/flow-key-indexer/model"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/onflow/flow-go-sdk"
@@ -146,9 +147,10 @@ func ProcessAddressChannel(
 				} else {
 					log.Debug().Msgf("account address: %v", len(acct.Keys))
 					for _, key := range acct.Keys {
+						// clean up the public key, remove the 0x prefix
 						keys = append(keys, model.PublicKeyAccountIndexer{
-							PublicKey: key.PublicKey.String(),
-							Account:   addr,
+							PublicKey: strip0xPrefix(key.PublicKey.String()),
+							Account:   add0xPrefix(addr),
 							Weight:    key.Weight,
 							KeyId:     key.Index,
 						})
@@ -166,4 +168,18 @@ func ProcessAddressChannel(
 	}()
 
 	return nil
+}
+
+func strip0xPrefix(str string) string {
+	if strings.HasPrefix(str, "0x") {
+		return str[2:]
+	}
+	return str
+}
+
+func add0xPrefix(s string) string {
+	if !strings.HasPrefix(s, "0x") {
+		return "0x" + s
+	}
+	return s
 }

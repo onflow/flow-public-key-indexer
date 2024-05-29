@@ -78,7 +78,7 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, bloc
 	// debug log num addresses found
 	log.Debug().Msgf("found %d addresses", len(accountAddresses))
 	for _, accountAddr := range accountAddresses {
-		s.DB.RemoveAccountForReloading(accountAddr)
+		s.DB.RemoveAccountForReloading(add0xPrefix(accountAddr))
 		addresses = append(addresses, flow.HexToAddress(accountAddr))
 	}
 
