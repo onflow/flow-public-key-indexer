@@ -58,20 +58,17 @@ func (fa *FlowAdapter) GetCurrentBlockHeight() (uint64, error) {
 	return block.Height, nil
 }
 
-func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockheight uint64, maxBlockRange int, waitNumBlocks int) ([]string, uint64, bool, error) {
+func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockheight uint64) ([]string, uint64, error) {
 	itemsPerRequest := 245 // access node can only handel 250
 	eventTypes := []string{"flow.AccountKeyAdded", "flow.AccountKeyRemoved"}
 	var addrActions []string
-	restartBulkLoad := true
 	currentHeight, err := fa.GetCurrentBlockHeight()
 	if err != nil {
 		log.Error().Err(err).Msg("Could not get current block height")
-		return addrActions, currentHeight, restartBulkLoad, err
+		return addrActions, currentHeight, err
 	}
 
-	// backing off a few blocks to allow for buffer
-	BlockHeight := currentHeight //- 10 // backoff current
-	// create chunks to make sure query limit is not exceeded
+	BlockHeight := currentHeight - 10 // little buffer
 	var chunksEvents []client.EventRangeQuery
 
 	for _, eventType := range eventTypes {
@@ -79,12 +76,12 @@ func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlock
 		chunksEvents = append(chunksEvents, events...)
 	}
 
-	addrs, restartDataLoader := fa.GetEventAddresses(flowUrls, chunksEvents)
+	addrs := fa.GetEventAddresses(flowUrls, chunksEvents)
 	// iterate over addrs and log out
 	for _, addr := range addrs {
 		log.Debug().Msgf("addr %v", addr)
 	}
-	return addrs, BlockHeight, restartDataLoader, nil
+	return addrs, BlockHeight, nil
 }
 
 func ChunkEventRangeQuery(itemsPerRequest int, lowBlockHeight, highBlockHeight uint64, eventName string) []client.EventRangeQuery {
@@ -172,9 +169,8 @@ func Trim0x(hexString string) string {
 	return hexString
 }
 
-func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.EventRangeQuery) ([]string, bool) {
+func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.EventRangeQuery) []string {
 	var allPkAddrs []string
-	restartBulkLoad := false
 	var wg sync.WaitGroup
 	eventRangeChan := make(chan client.EventRangeQuery)
 	publicKeyChan := make(chan string)
@@ -202,10 +198,7 @@ func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.Eve
 
 			for query := range eventRangeChan {
 				log.Debug().Msgf("Query %v event blocks: %d   %d", query.Type, query.StartHeight, query.EndHeight)
-				addrs, restart := RunAddressQuery(client, fa.Context, query)
-				if !restart {
-					restartBulkLoad = restart
-				}
+				addrs, _ := RunAddressQuery(client, fa.Context, query)
 				for _, addr := range addrs {
 					publicKeyChan <- addr
 				}
@@ -224,7 +217,7 @@ func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.Eve
 	close(publicKeyChan)
 	close(eventRangeChan)
 
-	return allPkAddrs, restartBulkLoad
+	return allPkAddrs
 }
 
 func splitQuery(query client.EventRangeQuery) []client.EventRangeQuery {

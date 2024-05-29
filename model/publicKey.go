@@ -24,7 +24,7 @@ func (PublicKeyAccountIndexer) TableName() string {
 
 type PublicKeyBlockHeight struct {
 	UpdatedBlockheight uint64 `gorm:"column:updatedBlockheight"`
-	PendingBlockheight uint64 `gorm:"column:pendingBlockheight"`
+	LoadedBlockheight  uint64 `gorm:"column:loadedBlockheight"`
 }
 
 func (PublicKeyBlockHeight) TableName() string {
@@ -32,9 +32,7 @@ func (PublicKeyBlockHeight) TableName() string {
 }
 
 type PublicKeyStatus struct {
-	Count          int  `json:"publicKeyCount"`
-	CurrentBlock   int  `json:"currentBlockHeight"`
-	UpdatedToBlock int  `json:"updatedToBlockHeight"`
-	PendingToBlock int  `json:"pendingLoadBlockHeight"`
-	IsBulkLoading  bool `json:"isBulkLoading"`
+	Count         int `json:"publicKeyCount"`
+	CurrentBlock  int `json:"currentBlockHeight"`
+	LoadedToBlock int `json:"LoadToBlockHeight"`
 }

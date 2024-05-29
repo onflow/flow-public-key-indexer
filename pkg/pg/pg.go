@@ -50,7 +50,7 @@ func (d *Database) InitDatabase(purgeOnStart bool) error {
 		weight int,
 		PRIMARY KEY(publicKey, account, keyId))`
 	createStatsTable := `CREATE TABLE IF NOT EXISTS publickeyindexer_stats(
-		pendingBlockheight int,
+		loadedBlockheight int,
 		updatedBlockheight int,
 		uniquePublicKeys int
 		)`

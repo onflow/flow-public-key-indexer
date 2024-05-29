@@ -209,6 +209,7 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 			addresses = append(addresses, addr)
 		}
 		if len(addresses) > 0 {
+			p.log.Debug().Msgf("Sending %d addresses", len(addresses))
 			addressChan <- addresses
 		}
 

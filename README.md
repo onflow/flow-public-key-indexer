@@ -104,8 +104,6 @@ serves up json object</p>
 {
 "publicKeyCount": int         // total unique public keys indexed
 "currentBlockHeight": int     // current block of access node
-"updatedToBlockHeight": int   // block data is updated against
-"pendingLoadBlockHeight": int // block height loading data from 
-"isBulkLoading": bool         // indicates if bulk loading data
+"LoadToBlockHeight": int // block height loading data from 
 }
 ```

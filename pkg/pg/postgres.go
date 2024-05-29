@@ -39,13 +39,10 @@ func (s *Store) Start(purgeOnStart bool) error {
 
 func (s Store) Stats() model.PublicKeyStatus {
 	status, _ := s.GetPublicKeyStats()
-	isBulkLoading := uint64(status.UpdatedToBlock) == uint64(0)
 
 	return model.PublicKeyStatus{
-		Count:          status.Count,
-		UpdatedToBlock: status.UpdatedToBlock,
-		PendingToBlock: status.PendingToBlock,
-		IsBulkLoading:  isBulkLoading,
+		Count:         status.Count,
+		LoadedToBlock: status.LoadedToBlock,
 	}
 }
 
@@ -98,14 +95,6 @@ func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
 	return nonExistingAddresses, nil
 }
 
-func (s Store) UpdateUpdatedBlockHeight(blockNumber uint64) {
-	sqlStatement := "UPDATE publickeyindexer_stats SET updatedBlockheight = ?"
-	err := s.db.Exec(sqlStatement, blockNumber).Error
-	if err != nil {
-		s.logger.Error().Err(err).Msgf("could not update updated block height %v", blockNumber)
-	}
-}
-
 func (s Store) GetUpdatedBlockHeight() (uint64, error) {
 	query := "SELECT updatedBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
@@ -126,7 +115,7 @@ func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 	type Result struct {
 		UniquePublicKeys   int `gorm:"column:uniquepublickeys"`
 		UpdatedBlockheight int `gorm:"column:updatedblockheight"`
-		PendingBlockheight int `gorm:"column:pendingblockheight"`
+		LoadedBlockheight  int `gorm:"column:loadedblockheight"`
 	}
 
 	var result Result
@@ -136,14 +125,13 @@ func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 		s.logger.Error().Err(err).Msgf("get status %v", result.UniquePublicKeys)
 	}
 	status := model.PublicKeyStatus{
-		Count:          result.UniquePublicKeys,
-		UpdatedToBlock: result.UpdatedBlockheight,
-		PendingToBlock: result.PendingBlockheight,
+		Count:         result.UniquePublicKeys,
+		LoadedToBlock: result.LoadedBlockheight,
 	}
 	return status, nil
 }
-
 func (s Store) UpdateDistinctCount() {
+	s.logger.Debug().Msg("UpdateDistinctCount called")
 	// Acquire a slot in the semaphore
 	s.done <- struct{}{}
 	defer func() {
@@ -151,9 +139,14 @@ func (s Store) UpdateDistinctCount() {
 		<-s.done
 	}()
 
-	cnt, _ := s.GetCount()
+	cnt, err := s.GetCount()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Error getting count")
+		return
+	}
+	s.logger.Debug().Msgf("Updating unique public keys count to %v", cnt)
 	sqlStatement := `UPDATE publickeyindexer_stats SET uniquePublicKeys = ?`
-	err := s.db.Exec(sqlStatement, cnt).Error
+	err = s.db.Exec(sqlStatement, cnt).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update unique public keys %v", cnt)
 	}
@@ -166,12 +159,15 @@ func (s Store) GetCount() (int, error) {
 	err := s.db.Raw(query).Scan(&cnt).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get distinct publickey count %v", cnt)
+		return 0, err
 	}
 
+	s.logger.Debug().Msgf("Distinct public key count is %v", cnt)
 	return cnt, nil
 }
 
-func (s Store) UpdatePendingBlockHeight(blockNumber uint64) {
+func (s Store) UpdateLoadedBlockHeight(blockNumber uint64) {
+	log.Debug().Msgf("Updating loaded block height to %v", blockNumber)
 	sqlStatement := `UPDATE publickeyindexer_stats SET pendingBlockheight = ?`
 
 	err := s.db.Exec(sqlStatement, blockNumber).Error
@@ -180,7 +176,7 @@ func (s Store) UpdatePendingBlockHeight(blockNumber uint64) {
 	}
 }
 
-func (s Store) GetPendingBlockHeight() (uint64, error) {
+func (s Store) GetLoadedBlockHeight() (uint64, error) {
 	query := "SELECT pendingBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
 
@@ -193,7 +189,7 @@ func (s Store) GetPendingBlockHeight() (uint64, error) {
 }
 
 func (s Store) RemoveAccountForReloading(account string) {
-	s.logger.Debug().Msgf("remove pk and acct %v", account)
+	s.logger.Debug().Msgf("remove acct %v", account)
 	sqlStatement := `DELETE FROM publickeyindexer WHERE account = $2;`
 	err := s.db.Raw(sqlStatement, account).Error
 	if err != nil {

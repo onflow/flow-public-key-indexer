@@ -68,7 +68,7 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address, bloc
 }
 
 func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, blockHeight uint64) (uint64, error) {
-	accountAddresses, currBlockHeight, _, err := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
+	accountAddresses, synchedBlockHeight, err := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight)
 	if err != nil {
 		return blockHeight, err
 	}
@@ -88,7 +88,7 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, bloc
 		addressChan <- unique(addresses)
 	}
 
-	return currBlockHeight, err
+	return synchedBlockHeight, err
 }
 
 func unique(addresses []flow.Address) []flow.Address {

@@ -106,7 +106,7 @@ func ProcessAddressChannel(
 			var addrs []string
 			// convert flow.Address to string
 			for _, addr := range accountAddresses {
-				addrs = append(addrs, addr.String())
+				addrs = append(addrs, add0xPrefix(addr.String()))
 			}
 			accountAddresses, err := filter(addrs)
 			if err != nil {
@@ -120,7 +120,6 @@ func ProcessAddressChannel(
 			}
 
 			for _, addr := range accountAddresses {
-				log.Debug().Msgf("getAccount with address: %v", addr)
 				acct, err := client.GetAccount(ctx, flow.HexToAddress(addr))
 				if err != nil {
 					log.Error().Err(err).Msg("failed to get account")
@@ -144,7 +143,6 @@ func ProcessAddressChannel(
 						KeyId:     0,
 					})
 				} else {
-					log.Debug().Msgf("account address: %v", len(acct.Keys))
 					for _, key := range acct.Keys {
 						// clean up the public key, remove the 0x prefix
 						keys = append(keys, model.PublicKeyAccountIndexer{

@@ -89,8 +89,7 @@ func (a *App) Run() {
 
 	startingBlockHeight := currentBlock.Height - uint64(a.p.MaxBlockRange)
 
-	a.DB.UpdatePendingBlockHeight(startingBlockHeight)
-	a.DB.UpdateUpdatedBlockHeight(startingBlockHeight)
+	a.DB.UpdateLoadedBlockHeight(startingBlockHeight)
 
 	log.Debug().Msgf("Current block from server %v", currentBlock)
 
@@ -156,15 +155,15 @@ func (a *App) bulkLoad(addressChan chan []flow.Address, currentBlock *flow.Block
 
 func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 	start := time.Now()
-	pendingBlkHeight, _ := a.DB.GetPendingBlockHeight()
+	loadedBlkHeight, _ := a.DB.GetLoadedBlockHeight()
 
-	var blockHeight uint64
+	var synchToBlockHeight uint64
 	var err error
-	blockHeight, err = a.dataLoader.RunIncAddressesLoader(addressChan, pendingBlkHeight)
+	synchToBlockHeight, err = a.dataLoader.RunIncAddressesLoader(addressChan, loadedBlkHeight)
 	if err != nil {
 		log.Error().Err(err).Msg("could not load incremental public keys, retrying")
 		var errRetry error
-		blockHeight, errRetry = a.dataLoader.RunIncAddressesLoader(addressChan, pendingBlkHeight)
+		synchToBlockHeight, errRetry = a.dataLoader.RunIncAddressesLoader(addressChan, loadedBlkHeight)
 		if errRetry != nil {
 			log.Error().Err(errRetry).Msg("could not load incremental public keys, retrying")
 		}
@@ -172,10 +171,10 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 	duration := time.Since(start)
 
 	if err == nil {
-		a.DB.UpdatePendingBlockHeight(blockHeight)
+		a.DB.UpdateLoadedBlockHeight(synchToBlockHeight)
 	}
 
-	log.Info().Msgf("Inc Load, %f sec, loaded from: %d (to %d blockHeight)", duration.Seconds(), pendingBlkHeight, blockHeight)
+	log.Info().Msgf("Inc Load, %f sec, loaded from: %d (to %d blockHeight)", duration.Seconds(), loadedBlkHeight, synchToBlockHeight)
 }
 
 func setAllFlowUrls(params Params) []string {
