@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"math"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -58,72 +56,42 @@ func (fa *FlowAdapter) GetCurrentBlockHeight() (uint64, error) {
 	return block.Height, nil
 }
 
-func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockheight uint64) ([]string, uint64, error) {
-	itemsPerRequest := 245 // access node can only handel 250
+func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockHeight uint64) ([]string, uint64, error) {
 	eventTypes := []string{"flow.AccountKeyAdded", "flow.AccountKeyRemoved"}
-	var addrActions []string
 	currentHeight, err := fa.GetCurrentBlockHeight()
+
 	if err != nil {
 		log.Error().Err(err).Msg("Could not get current block height")
-		return addrActions, currentHeight, err
+		return []string{}, currentHeight, err
 	}
 
-	BlockHeight := currentHeight - 10 // little buffer
-	var chunksEvents []client.EventRangeQuery
+	BlockHeight := currentHeight
+	var queryEvents []client.EventRangeQuery
 
 	for _, eventType := range eventTypes {
-		events := ChunkEventRangeQuery(itemsPerRequest, startBlockheight, BlockHeight, eventType)
-		chunksEvents = append(chunksEvents, events...)
+		queryEvents = append(queryEvents, client.EventRangeQuery{
+			Type:        eventType,
+			StartHeight: startBlockHeight,
+			EndHeight:   BlockHeight,
+		})
 	}
 
-	addrs := fa.GetEventAddresses(flowUrls, chunksEvents)
-	// iterate over addrs and log out
-	for _, addr := range addrs {
-		log.Debug().Msgf("addr %v", addr)
+	addrs, err := fa.GetEventAddresses(flowUrls, queryEvents)
+	if err != nil {
+		log.Error().Err(err).Msg("Could not get event addresses")
+		return addrs, BlockHeight, err
 	}
+
 	return addrs, BlockHeight, nil
 }
 
-func ChunkEventRangeQuery(itemsPerRequest int, lowBlockHeight, highBlockHeight uint64, eventName string) []client.EventRangeQuery {
-	maxServerBlockRange := float64(itemsPerRequest) // less than server's max of 250
-	var chunks []client.EventRangeQuery
-	totalRange := float64(highBlockHeight - lowBlockHeight)
-	numChunks := math.Ceil(totalRange / maxServerBlockRange)
-	lowHeight := lowBlockHeight
-	highHeight := uint64(lowHeight + uint64(maxServerBlockRange))
-	for i := 0; i < int(numChunks); i++ {
-		query := client.EventRangeQuery{
-			Type:        eventName,
-			StartHeight: lowHeight,
-			EndHeight:   highHeight,
-		}
-		chunks = append(chunks, query)
-		lowHeight = lowHeight + uint64(maxServerBlockRange) + 1
-		highHeight = lowHeight + uint64(maxServerBlockRange)
-
-		if highHeight > highBlockHeight {
-			highHeight = highBlockHeight
-		}
-	}
-	return chunks
-}
-
-func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) ([]string, bool) {
+func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) ([]string, error) {
 	var allAccountAddresses []string
-	restartBulkLoad := false
 	events, err := client.GetEventsForHeightRange(context, query)
 	log.Debug().Msgf("events %v", len(events))
 	if err != nil {
-		log.Warn().Err(err).Msgf("retrying get events in block range %d %d", query.StartHeight, query.EndHeight)
-		// break up query into smaller chunks
-		for _, q := range splitQuery(query) {
-			eventsRetry, errRetry := client.GetEventsForHeightRange(context, q)
-			if errRetry != nil {
-				log.Error().Err(errRetry).Msg("retrying get events failed")
-				return allAccountAddresses, true
-			}
-			events = append(events, eventsRetry...)
-		}
+		log.Warn().Err(err).Msgf("Error events in block range %d %d", query.StartHeight, query.EndHeight)
+		return allAccountAddresses, err
 	}
 	for _, event := range events {
 		for _, evt := range event.Events {
@@ -150,30 +118,17 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 		}
 	}
 	log.Debug().Msgf("total addrs %v affected", len(allAccountAddresses))
-	return allAccountAddresses, restartBulkLoad
+	return allAccountAddresses, nil
 }
-
-func ByteArrayValueToByteSlice(array cadence.Array) (result []byte) {
-	result = make([]byte, 0, len(array.Values))
-	for _, value := range array.Values {
-		result = append(result, byte(value.(cadence.UInt8)))
-	}
-	return result
-}
-
-func Trim0x(hexString string) string {
-	prefix := hexString[:2]
-	if prefix == "0x" {
-		return hexString[2:]
-	}
-	return hexString
-}
-
-func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.EventRangeQuery) []string {
+func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.EventRangeQuery) ([]string, error) {
 	var allPkAddrs []string
-	var wg sync.WaitGroup
+	var callingError error
 	eventRangeChan := make(chan client.EventRangeQuery)
 	publicKeyChan := make(chan string)
+	errChan := make(chan error, len(queries)) // buffered channel to handle errors
+
+	var wg sync.WaitGroup
+	wg.Add(len(flowUrls))
 
 	go func() {
 		for addrs := range publicKeyChan {
@@ -181,10 +136,17 @@ func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.Eve
 		}
 	}()
 
-	wg.Add(len(queries))
+	go func() {
+		wg.Wait()
+		close(publicKeyChan)
+		close(errChan)
+	}()
+
 	for i := 0; i < len(flowUrls); i++ {
 		flowUrl := flowUrls[i]
-		go func() {
+		go func(flowUrl string) {
+			defer wg.Done()
+
 			// Each worker has a separate Flow client
 			client := getFlowClient(flowUrl)
 			defer func() {
@@ -197,31 +159,36 @@ func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.Eve
 			}()
 
 			for query := range eventRangeChan {
-				log.Debug().Msgf("Query %v event blocks: %d   %d", query.Type, query.StartHeight, query.EndHeight)
-				addrs, _ := RunAddressQuery(client, fa.Context, query)
+				log.Debug().Msgf("Query %v event blocks: %d %d, range %d", query.Type, query.StartHeight, query.EndHeight, query.EndHeight-query.StartHeight)
+
+				addrs, err := RunAddressQuery(client, fa.Context, query)
+				if err != nil {
+					log.Error().Err(err).Msg("Error getting event addresses, sending error to error channel")
+					errChan <- err // send error to error channel
+					return
+				}
+
 				for _, addr := range addrs {
 					publicKeyChan <- addr
 				}
-				time.Sleep(500 * time.Millisecond) // give time for channel to process
-				wg.Done()
 			}
-		}()
+		}(flowUrl)
 	}
 
-	for _, query := range queries {
-		eventRangeChan <- query
+	go func() {
+		for _, query := range queries {
+			eventRangeChan <- query
+		}
+		close(eventRangeChan)
+	}()
+
+	for err := range errChan {
+		if err != nil {
+			callingError = err
+			break
+		}
 	}
 
-	wg.Wait()
-
-	close(publicKeyChan)
-	close(eventRangeChan)
-
-	return allPkAddrs
-}
-
-func splitQuery(query client.EventRangeQuery) []client.EventRangeQuery {
-	rangef := float64(query.EndHeight - query.StartHeight)
-	itemsPerRequest := math.Ceil(rangef / 2)
-	return ChunkEventRangeQuery(int(itemsPerRequest), query.StartHeight, query.EndHeight, query.Type)
+	log.Debug().Msgf("Total addresses %v  has error: %v", len(allPkAddrs), callingError == nil)
+	return allPkAddrs, callingError
 }

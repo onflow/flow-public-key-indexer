@@ -45,21 +45,28 @@ func (s Store) Stats() model.PublicKeyStatus {
 		LoadedToBlock: status.LoadedToBlock,
 	}
 }
-
 func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) error {
 	ctx := context.Background()
 	log.Debug().Msgf("Inserting %v public key accounts", len(pkis))
+
+	insertedCount := 0
+
 	err := s.db.RunInTransaction(ctx, func(txCtx context.Context) error {
 		for _, publicKeyAccount := range pkis {
-			err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&publicKeyAccount).Error
-			if err != nil {
-				log.Debug().Err(err).Msg("Error inserting public key account record")
+			result := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&publicKeyAccount)
+			if result.Error != nil {
+				log.Debug().Err(result.Error).Msg("Error inserting public key account record")
 				// Return the error if it's not an integrity violation
-				return err
+				return result.Error
+			}
+			if result.RowsAffected > 0 {
+				insertedCount++
 			}
 		}
 		return nil
 	})
+
+	log.Debug().Msgf("Inserted %v public key accounts", insertedCount)
 
 	if err != nil {
 		return err

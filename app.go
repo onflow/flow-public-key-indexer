@@ -91,7 +91,7 @@ func (a *App) Run() {
 
 	a.DB.UpdateLoadedBlockHeight(startingBlockHeight)
 
-	log.Debug().Msgf("Current block from server %v", currentBlock)
+	log.Debug().Msgf("Current block from server %v", currentBlock.Height)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Could not get current block height")
@@ -127,7 +127,7 @@ func (a *App) loadIncrementalData(addressChan chan []flow.Address) {
 					a.incrementalLoad(addressChan)
 				}()
 			case <-quit:
-				log.Info().Msg("ticket is stopped")
+				log.Info().Msg("ticker is stopped")
 				ticker.Stop()
 				return
 			}
@@ -161,12 +161,7 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 	var err error
 	synchToBlockHeight, err = a.dataLoader.RunIncAddressesLoader(addressChan, loadedBlkHeight)
 	if err != nil {
-		log.Error().Err(err).Msg("could not load incremental public keys, retrying")
-		var errRetry error
-		synchToBlockHeight, errRetry = a.dataLoader.RunIncAddressesLoader(addressChan, loadedBlkHeight)
-		if errRetry != nil {
-			log.Error().Err(errRetry).Msg("could not load incremental public keys, retrying")
-		}
+		log.Error().Err(err).Msg("could not load incremental public keys, will retry if falling behind ")
 	}
 	duration := time.Since(start)
 
@@ -174,7 +169,17 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 		a.DB.UpdateLoadedBlockHeight(synchToBlockHeight)
 	}
 
-	log.Info().Msgf("Inc Load, %f sec, loaded from: %d (to %d blockHeight)", duration.Seconds(), loadedBlkHeight, synchToBlockHeight)
+	log.Info().Msgf("Inc Load, %f sec, from: %d to: %d blockHeight, range %d", duration.Seconds(), loadedBlkHeight, synchToBlockHeight, synchToBlockHeight-loadedBlkHeight)
+
+	currentBlockHeight, _ := a.flowClient.GetCurrentBlockHeight()
+	// check if processing events took too long to wait for another interval and run an extra incremental load
+	blockRange := currentBlockHeight - synchToBlockHeight
+	if blockRange > uint64(a.p.WaitNumBlocks) {
+		refreshBlock := currentBlockHeight - uint64(a.p.MaxBlockRange)
+		log.Warn().Msgf("Incremental load is lagging, running incremental at %d, %d blocks", refreshBlock, blockRange)
+		synchToBlockHeight, _ = a.dataLoader.RunIncAddressesLoader(addressChan, refreshBlock)
+		a.DB.UpdateLoadedBlockHeight(synchToBlockHeight)
+	}
 }
 
 func setAllFlowUrls(params Params) []string {

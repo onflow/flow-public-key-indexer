@@ -114,7 +114,7 @@ func ProcessAddressChannel(
 				continue
 			}
 
-			log.Debug().Msgf("filtered addresses: %v", len(accountAddresses))
+			log.Debug().Msgf("processing addresses: %v", len(accountAddresses))
 			if len(accountAddresses) == 0 {
 				continue
 			}
@@ -130,7 +130,7 @@ func ProcessAddressChannel(
 					continue
 				}
 				if acct.Keys == nil {
-					log.Debug().Msgf("account has no keys: %v", addr)
+					log.Debug().Msgf("account has nil Keys: %v", addr)
 					continue
 				}
 				if len(acct.Keys) == 0 {
