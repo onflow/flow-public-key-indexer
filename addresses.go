@@ -56,6 +56,7 @@ func InitAddressProvider(
 	referenceBlockID flow.Identifier,
 	client *client.Client,
 	pause time.Duration,
+	valid func(string) bool,
 ) (*AddressProvider, error) {
 	ap := &AddressProvider{
 		log:              log,
@@ -74,6 +75,11 @@ func InitAddressProvider(
 
 		searchStep += 1
 		address := ap.indexToAddress(index)
+
+		// skip already validated addresses
+		if valid(address.Hex()) {
+			return true, nil
+		}
 		// This script will fail with endOfAccountsError
 		// if the account (address at given index) doesn't exist yet
 		_, err := client.ExecuteScriptAtBlockID(

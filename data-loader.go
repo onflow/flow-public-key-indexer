@@ -63,7 +63,7 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address, bloc
 	config.maxAcctKeys = s.config.MaxAcctKeys
 	config.Pause = time.Duration(s.config.FetchSlowDownMs * int(time.Millisecond))
 
-	_, err := GetAllAddresses(context.Background(), log.Logger, config, addressChan, block)
+	_, err := GetAllAddresses(context.Background(), log.Logger, config, addressChan, block, s.DB.AddressIsValid)
 	return err
 }
 

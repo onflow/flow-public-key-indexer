@@ -68,10 +68,11 @@ func GetAllAddresses(
 	conf Config,
 	addressChan chan []flow.Address,
 	currentBlock *flow.BlockHeader,
+	validateAddress func(string) bool,
 ) (height uint64, err error) {
 	flowClient := getFlowClient(conf.FlowAccessNodeURLs[0])
 
-	ap, err := InitAddressProvider(ctx, log, conf.ChainID, currentBlock.ID, flowClient, conf.Pause)
+	ap, err := InitAddressProvider(ctx, log, conf.ChainID, currentBlock.ID, flowClient, conf.Pause, validateAddress)
 	if err != nil {
 		return 0, err
 	}
