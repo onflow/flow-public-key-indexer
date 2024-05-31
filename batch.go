@@ -103,7 +103,7 @@ func ProcessAddressChannel(
 
 		for accountAddresses := range addressChan {
 			var keys []model.PublicKeyAccountIndexer
-			log.Debug().Msgf("running script with %d addresses", len(accountAddresses))
+			log.Debug().Msgf("Validating %d addresses", len(accountAddresses))
 			var addrs []string
 			// convert flow.Address to string
 			for _, addr := range accountAddresses {
@@ -111,11 +111,11 @@ func ProcessAddressChannel(
 			}
 			accountAddresses, err := filter(addrs)
 			if err != nil {
-				log.Error().Err(err).Msg("failed to filter addresses")
+				log.Error().Err(err).Msg("Failed to filter addresses")
 				continue
 			}
 
-			log.Debug().Msgf("processing addresses: %v", len(accountAddresses))
+			log.Debug().Msgf("Processing addresses: %v", len(accountAddresses))
 			if len(accountAddresses) == 0 {
 				continue
 			}
@@ -123,23 +123,23 @@ func ProcessAddressChannel(
 			for _, addr := range accountAddresses {
 				acct, err := client.GetAccount(ctx, flow.HexToAddress(addr))
 				if err != nil {
-					log.Error().Err(err).Msg("failed to get account")
+					log.Error().Err(err).Msg("Failed to get account")
 					continue
 				}
 				if acct == nil {
-					log.Debug().Msgf("account not found: %v", addr)
+					log.Debug().Msgf("Account not found: %v", addr)
 					continue
 				}
 				if acct.Keys == nil {
-					log.Debug().Msgf("account has nil Keys: %v", addr)
+					log.Debug().Msgf("Account has nil Keys: %v", addr)
 					continue
 				}
 				if len(acct.Keys) == 0 {
-					log.Debug().Msgf("account has no keys: %v", addr)
+					log.Debug().Msgf("Account has no keys: %v", addr)
 					// save account with blank public key to avoid querying it again
 					keys = append(keys, model.PublicKeyAccountIndexer{
 						PublicKey: "blank",
-						Account:   addr,
+						Account:   add0xPrefix(addr),
 						Weight:    0,
 						KeyId:     0,
 					})
@@ -157,7 +157,7 @@ func ProcessAddressChannel(
 			}
 			errHandler := handler(keys)
 			if errHandler != nil {
-				log.Error().Err(err).Msg("failed to handle keys")
+				log.Error().Err(err).Msg("Failed to handle keys")
 			}
 
 			// add wait time in seconds

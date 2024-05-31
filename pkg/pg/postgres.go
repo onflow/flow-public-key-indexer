@@ -96,7 +96,7 @@ func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
 		log.Debug().Err(err).Msg("Error checking if accounts exist")
 		return nil, err
 	}
-	s.logger.Debug().Msgf("existing addresses %v", len(existingAddresses))
+	s.logger.Debug().Msgf("Existing addresses %v", len(existingAddresses))
 	addressMap := make(map[string]bool)
 	for _, addr := range existingAddresses {
 		addressMap[addr] = true
@@ -109,7 +109,7 @@ func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
 		}
 	}
 
-	s.logger.Debug().Msgf("returning addresses %v", len(nonExistingAddresses))
+	s.logger.Debug().Msgf("Not in db addresses %v", len(nonExistingAddresses))
 	return nonExistingAddresses, nil
 }
 
