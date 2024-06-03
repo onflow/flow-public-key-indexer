@@ -187,6 +187,6 @@ func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.Eve
 		}
 	}
 
-	log.Debug().Msgf("Total addresses %v  has error: %v", len(allPkAddrs), callingError == nil)
+	log.Debug().Msgf("Total addresses %v  has error: %v", len(allPkAddrs), callingError != nil)
 	return allPkAddrs, callingError
 }
