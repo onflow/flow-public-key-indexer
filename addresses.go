@@ -65,13 +65,9 @@ func InitAddressProvider(
 		currentIndex:     1,
 	}
 
-	last := time.Now()
 	searchStep := 0
 	addressExistsAtIndex := func(index uint) (bool, error) {
-		if time.Since(last) < pause {
-			time.Sleep(pause)
-		}
-		last = time.Now()
+		time.Sleep(pause)
 
 		searchStep += 1
 		address := ap.indexToAddress(index)
@@ -88,6 +84,7 @@ func InitAddressProvider(
 			[]byte(accountStorageUsageScript),
 			[]cadence.Value{cadence.NewAddress(address)},
 		)
+
 		if err == nil {
 			return true, nil
 		}
