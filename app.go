@@ -156,10 +156,16 @@ func (a *App) bulkLoad(addressChan chan []flow.Address, currentBlock *flow.Block
 func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 	start := time.Now()
 	loadedBlkHeight, _ := a.DB.GetLoadedBlockHeight()
+	currentHeight, errCurr := a.flowClient.GetCurrentBlockHeight()
+	if errCurr != nil {
+		log.Error().Err(errCurr).Msg("could not get current block height")
+		return
+	}
+	log.Debug().Msgf("Starting incremental load from block %d", loadedBlkHeight)
 
 	var synchToBlockHeight uint64
 	var err error
-	synchToBlockHeight, err = a.dataLoader.RunIncAddressesLoader(addressChan, loadedBlkHeight)
+	synchToBlockHeight, err = a.dataLoader.RunIncAddressesLoader(addressChan, loadedBlkHeight, currentHeight)
 	if err != nil {
 		log.Error().Err(err).Msg("could not load incremental public keys, will retry if falling behind ")
 	}
@@ -177,7 +183,7 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 	if blockRange > uint64(a.p.WaitNumBlocks) {
 		refreshBlock := currentBlockHeight - uint64(a.p.MaxBlockRange)
 		log.Warn().Msgf("Incremental load is lagging, running incremental at %d, %d blocks", refreshBlock, blockRange)
-		synchToBlockHeight, _ = a.dataLoader.RunIncAddressesLoader(addressChan, refreshBlock)
+		synchToBlockHeight, _ = a.dataLoader.RunIncAddressesLoader(addressChan, refreshBlock, currentBlockHeight)
 		a.DB.UpdateLoadedBlockHeight(synchToBlockHeight)
 	}
 }

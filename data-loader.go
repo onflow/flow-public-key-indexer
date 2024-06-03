@@ -67,8 +67,8 @@ func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address, bloc
 	return err
 }
 
-func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, blockHeight uint64) (uint64, error) {
-	accountAddresses, synchedBlockHeight, err := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight)
+func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, blockHeight uint64, endBlockHeight uint64) (uint64, error) {
+	accountAddresses, synchedBlockHeight, err := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, endBlockHeight)
 	if err != nil {
 		return blockHeight, err
 	}
@@ -76,7 +76,6 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, bloc
 	var addresses []flow.Address
 	// filter out empty Public keys and send account addresses to get processed
 	// debug log num addresses found
-	log.Debug().Msgf("found %d addresses", len(accountAddresses))
 	for _, accountAddr := range accountAddresses {
 		s.DB.RemoveAccountForReloading(add0xPrefix(accountAddr))
 		addresses = append(addresses, flow.HexToAddress(accountAddr))
@@ -84,8 +83,8 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, bloc
 
 	if len(addresses) > 0 {
 		// processing account key address
-		log.Debug().Msgf("found %d addresses", len(addresses))
 		addressChan <- unique(addresses)
+		log.Debug().Msgf("found %d addresses, at %v", len(addresses), synchedBlockHeight)
 	}
 
 	return synchedBlockHeight, err

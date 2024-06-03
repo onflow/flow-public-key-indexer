@@ -54,33 +54,26 @@ func (fa *FlowAdapter) GetCurrentBlockHeight() (uint64, error) {
 	return block.Height, nil
 }
 
-func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockHeight uint64) ([]string, uint64, error) {
+func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockHeight uint64, endBlockHeight uint64) ([]string, uint64, error) {
 	eventTypes := []string{"flow.AccountKeyAdded", "flow.AccountKeyRemoved"}
-	currentHeight, err := fa.GetCurrentBlockHeight()
 
-	if err != nil {
-		log.Error().Err(err).Msg("Could not get current block height")
-		return []string{}, currentHeight, err
-	}
-
-	BlockHeight := currentHeight
 	var queryEvents []client.EventRangeQuery
 
 	for _, eventType := range eventTypes {
 		queryEvents = append(queryEvents, client.EventRangeQuery{
 			Type:        eventType,
 			StartHeight: startBlockHeight,
-			EndHeight:   BlockHeight,
+			EndHeight:   endBlockHeight,
 		})
 	}
 
 	addrs, err := fa.GetEventAddresses(flowUrls, queryEvents)
 	if err != nil {
 		log.Error().Err(err).Msg("Could not get event addresses")
-		return addrs, BlockHeight, err
+		return addrs, endBlockHeight, err
 	}
 
-	return addrs, BlockHeight, nil
+	return addrs, endBlockHeight, nil
 }
 
 func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) ([]string, error) {
@@ -118,6 +111,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 	log.Debug().Msgf("total addrs %v affected", len(allAccountAddresses))
 	return allAccountAddresses, nil
 }
+
 func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.EventRangeQuery) ([]string, error) {
 	var allPkAddrs []string
 	var callingError error
