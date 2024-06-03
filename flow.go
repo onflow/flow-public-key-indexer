@@ -12,7 +12,6 @@ import (
 	"github.com/onflow/flow-go-sdk"
 	"github.com/onflow/flow-go-sdk/client"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/encoding/gzip"
 )
 
 type FlowAdapter struct {
@@ -29,10 +28,9 @@ func NewFlowClient(url string) *FlowAdapter {
 	opts := []grpc.DialOption{
 		grpc.WithInsecure(),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(16*1024*1024), // 16 MB
-			grpc.MaxCallSendMsgSize(16*1024*1024), // 16 MB
+			grpc.MaxCallRecvMsgSize(1 * 1024 * 1024), // 16 MB
 		),
-		grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)), // Optional: Use compression
+		// grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)), // Optional: Use compression
 	}
 	// create flow client
 	FlowClient, err := client.New(strings.TrimSpace(adapter.URL), opts...)

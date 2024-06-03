@@ -81,6 +81,14 @@ func GetAllAddresses(
 	return currentBlock.Height, nil
 }
 
+// Ignore list for accounts that keep getting same public keys added
+var ignoreAccounts = map[string]bool{
+	"0xbf48a20670f179b8": true, // placeholder, replace when account identified
+}
+
+// addresses that error and need reprocessing
+var errorAddresses = map[string]bool{}
+
 func ProcessAddressChannel(
 	ctx context.Context,
 	log zerolog.Logger,
@@ -102,6 +110,7 @@ func ProcessAddressChannel(
 		}()
 
 		for accountAddresses := range addressChan {
+			// Skip address if known broken
 			var keys []model.PublicKeyAccountIndexer
 			log.Debug().Msgf("Validating %d addresses", len(accountAddresses))
 			var addrs []string
@@ -121,6 +130,11 @@ func ProcessAddressChannel(
 			}
 
 			for _, addr := range accountAddresses {
+				if _, ok := ignoreAccounts[addr]; ok {
+					continue
+				}
+				log.Debug().Msgf("pausing before getting address: %v", pauseInterval)
+				time.Sleep(time.Duration(pauseInterval) * time.Millisecond)
 				acct, err := client.GetAccount(ctx, flow.HexToAddress(addr))
 				if err != nil {
 					log.Error().Err(err).Msg("Failed to get account")
@@ -155,9 +169,17 @@ func ProcessAddressChannel(
 					}
 				}
 			}
+
 			errHandler := handler(keys)
 			if errHandler != nil {
 				log.Error().Err(err).Msg("Failed to handle keys")
+
+			}
+
+			// process error addresses
+			for _, addr := range accountAddresses {
+				log.Debug().Msgf("Process again address to error list: %v", addr)
+				addressChan <- []flow.Address{flow.HexToAddress(addr)}
 			}
 
 			// add wait time in seconds
