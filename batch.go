@@ -26,14 +26,15 @@ import (
 	"time"
 
 	"github.com/onflow/flow-go-sdk"
-	flowclient "github.com/onflow/flow-go-sdk/client"
+	flowclient "github.com/onflow/flow-go-sdk/access/grpc"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // getFlowClient initializes and returns a flow client
 func getFlowClient(flowClientUrl string) *flowclient.Client {
-	flowClient, err := flowclient.New(flowClientUrl, grpc.WithInsecure())
+	flowClient, err := flowclient.NewClient(flowClientUrl, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic(err)
 	}

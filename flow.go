@@ -10,7 +10,7 @@ import (
 	"github.com/onflow/cadence"
 	jsoncdc "github.com/onflow/cadence/encoding/json"
 	"github.com/onflow/flow-go-sdk"
-	"github.com/onflow/flow-go-sdk/client"
+	client "github.com/onflow/flow-go-sdk/access/grpc"
 	"google.golang.org/grpc"
 )
 
@@ -33,7 +33,7 @@ func NewFlowClient(url string) *FlowAdapter {
 		// grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)), // Optional: Use compression
 	}
 	// create flow client
-	FlowClient, err := client.New(strings.TrimSpace(adapter.URL), opts...)
+	FlowClient, err := client.NewClient(strings.TrimSpace(adapter.URL), opts...)
 	if err != nil {
 		log.Panic().Msgf("failed to connect to %s", adapter.URL)
 	}
@@ -85,7 +85,7 @@ func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlock
 
 func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) ([]string, error) {
 	var allAccountAddresses []string
-	events, err := client.GetEventsForHeightRange(context, query)
+	events, err := client.GetEventsForHeightRange(context, query.Type, query.StartHeight, query.EndHeight)
 	log.Debug().Msgf("events %v", len(events))
 	if err != nil {
 		log.Warn().Err(err).Msgf("Error events in block range %d %d", query.StartHeight, query.EndHeight)
@@ -95,7 +95,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 		for _, evt := range event.Events {
 			log.Debug().Msgf("event type %v", evt.Type)
 			var pkAddr PublicKeyEvent
-			payload, err := jsoncdc.Decode(evt.Payload)
+			payload, err := jsoncdc.Decode(nil, evt.Payload)
 			if err != nil {
 				log.Warn().Msgf("Could not decode payload %v %v", evt.Type, err.Error())
 				continue

@@ -25,7 +25,7 @@ import (
 
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
-	"github.com/onflow/flow-go-sdk/client"
+	"github.com/onflow/flow-go-sdk/access/grpc"
 	"github.com/rs/zerolog"
 )
 
@@ -54,7 +54,7 @@ func InitAddressProvider(
 	log zerolog.Logger,
 	chain flow.ChainID,
 	referenceBlockID flow.Identifier,
-	client *client.Client,
+	client *grpc.Client,
 	pause time.Duration,
 	valid func(string) bool,
 ) (*AddressProvider, error) {
