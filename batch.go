@@ -194,12 +194,12 @@ func ProcessAddressChannel(
 				if errHandler != nil {
 					log.Error().Err(err).Msg("Failed to handle keys")
 				}
-/*
+
 				for eAddr := range errorAddresses {
-					log.Debug().Msgf("addressChan: Process again address to error list: %v", eAddr)
-				//	addressChan <- []flow.Address{flow.HexToAddress(eAddr)}
+					log.Warn().Msgf("addressChan: Process again address to error list: %v", eAddr)
+					addressChan <- []flow.Address{flow.HexToAddress(eAddr)}
 				}
-*/
+
 			}
 		}
 	}()
