@@ -28,7 +28,7 @@ func NewFlowClient(url string) *FlowAdapter {
 	opts := []grpc.DialOption{
 		grpc.WithInsecure(),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(1 * 1024 * 1024), // 16 MB
+			grpc.MaxCallRecvMsgSize(16 * 1024 * 1024), // 16 MB
 		),
 		// grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)), // Optional: Use compression
 	}
