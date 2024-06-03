@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"strings"
-	"sync"
 
 	"github.com/rs/zerolog/log"
 
@@ -108,79 +107,28 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 			}
 		}
 	}
-	log.Debug().Msgf("total addrs %v affected", len(allAccountAddresses))
 	return allAccountAddresses, nil
 }
 
 func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.EventRangeQuery) ([]string, error) {
-	var allPkAddrs []string
-	var callingError error
-	eventRangeChan := make(chan client.EventRangeQuery)
-	publicKeyChan := make(chan string)
-	errChan := make(chan error, len(queries)) // buffered channel to handle errors
+	allPkAddrs := []string{} // Initialize the slice directly
 
-	var wg sync.WaitGroup
-	wg.Add(len(flowUrls))
+	// Use the first URL to create a single client
+	client := getFlowClient(flowUrls[0])
+	defer client.Close()
 
-	go func() {
-		for addrs := range publicKeyChan {
-			allPkAddrs = append(allPkAddrs, addrs)
-		}
-	}()
+	for _, query := range queries {
+		log.Debug().Msgf("Querying %v event blocks: %d %d, range %d", query.Type, query.StartHeight, query.EndHeight, query.EndHeight-query.StartHeight)
 
-	go func() {
-		wg.Wait()
-		close(publicKeyChan)
-		close(errChan)
-	}()
-
-	for i := 0; i < len(flowUrls); i++ {
-		flowUrl := flowUrls[i]
-		go func(flowUrl string) {
-			defer wg.Done()
-
-			// Each worker has a separate Flow client
-			client := getFlowClient(flowUrl)
-			defer func() {
-				err := client.Close()
-				if err != nil {
-					log.Warn().
-						Err(err).
-						Msg("error closing client")
-				}
-			}()
-
-			for query := range eventRangeChan {
-				log.Debug().Msgf("Query %v event blocks: %d %d, range %d", query.Type, query.StartHeight, query.EndHeight, query.EndHeight-query.StartHeight)
-
-				addrs, err := RunAddressQuery(client, fa.Context, query)
-				if err != nil {
-					log.Error().Err(err).Msg("Error getting event addresses, sending error to error channel")
-					errChan <- err // send error to error channel
-					return
-				}
-
-				for _, addr := range addrs {
-					publicKeyChan <- addr
-				}
-			}
-		}(flowUrl)
-	}
-
-	go func() {
-		for _, query := range queries {
-			eventRangeChan <- query
-		}
-		close(eventRangeChan)
-	}()
-
-	for err := range errChan {
+		addrs, err := RunAddressQuery(client, fa.Context, query)
 		if err != nil {
-			callingError = err
-			break
+			log.Error().Err(err).Msg("Error getting event addresses")
+			return allPkAddrs, err // Return the error immediately with processed addresses
 		}
+
+		allPkAddrs = append(allPkAddrs, addrs...)
 	}
 
-	log.Debug().Msgf("Total addresses %v  has error: %v", len(allPkAddrs), callingError != nil)
-	return allPkAddrs, callingError
+	log.Debug().Msgf("Total addresses: %d", len(allPkAddrs))
+	return allPkAddrs, nil
 }
