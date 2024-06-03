@@ -175,7 +175,7 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 		a.DB.UpdateLoadedBlockHeight(synchToBlockHeight)
 	}
 
-	log.Info().Msgf("Inc Load, %f sec, from: %d to: %d blockHeight, range %d", duration.Seconds(), loadedBlkHeight, synchToBlockHeight, synchToBlockHeight-loadedBlkHeight)
+	log.Info().Msgf("Finished Inc Load, %f sec, from: %d to: %d blockHeight, range %d", duration.Seconds(), loadedBlkHeight, synchToBlockHeight, synchToBlockHeight-loadedBlkHeight)
 
 	currentBlockHeight, _ := a.flowClient.GetCurrentBlockHeight()
 	// check if processing events took too long to wait for another interval and run an extra incremental load

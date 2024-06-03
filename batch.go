@@ -89,6 +89,8 @@ var ignoreAccounts = map[string]bool{
 // addresses that error and need reprocessing
 var errorAddresses = map[string]bool{}
 
+
+
 func ProcessAddressChannel(
 	ctx context.Context,
 	log zerolog.Logger,
@@ -109,81 +111,96 @@ func ProcessAddressChannel(
 			}
 		}()
 
-		for accountAddresses := range addressChan {
-			// Skip address if known broken
-			var keys []model.PublicKeyAccountIndexer
-			log.Debug().Msgf("Validating %d addresses", len(accountAddresses))
-			var addrs []string
-			// convert flow.Address to string
-			for _, addr := range accountAddresses {
-				addrs = append(addrs, add0xPrefix(addr.String()))
-			}
-			accountAddresses, err := filter(addrs)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to filter addresses")
-				continue
-			}
-
-			log.Debug().Msgf("Processing addresses: %v", len(accountAddresses))
-			if len(accountAddresses) == 0 {
-				continue
-			}
-
-			for _, addr := range accountAddresses {
-				if _, ok := ignoreAccounts[addr]; ok {
-					continue
+		for {
+			select {
+			case <-ctx.Done():
+				log.Info().Msg("Context done, exiting ProcessAddressChannel")
+				return
+			case accountAddresses, ok := <-addressChan:
+				if !ok {
+					log.Info().Msg("Address channel closed, exiting ProcessAddressChannel")
+					return
 				}
-				log.Debug().Msgf("pausing before getting address: %v", pauseInterval)
-				time.Sleep(time.Duration(pauseInterval) * time.Millisecond)
-				acct, err := client.GetAccount(ctx, flow.HexToAddress(addr))
+
+				// Process the addresses
+				var keys []model.PublicKeyAccountIndexer
+				log.Debug().Msgf("Validating %d addresses", len(accountAddresses))
+				var addrs []string
+				// convert flow.Address to string
+				for _, addr := range accountAddresses {
+					addrs = append(addrs, add0xPrefix(addr.String()))
+				}
+				filteredAddresses, err := filter(addrs)
 				if err != nil {
-					log.Error().Err(err).Msg("Failed to get account")
+					log.Error().Err(err).Msg("Failed to filter addresses")
 					continue
 				}
-				if acct == nil {
-					log.Debug().Msgf("Account not found: %v", addr)
+
+				log.Debug().Msgf("Processing addresses: %v", len(filteredAddresses))
+				if len(filteredAddresses) == 0 {
 					continue
 				}
-				if acct.Keys == nil {
-					log.Debug().Msgf("Account has nil Keys: %v", addr)
-					continue
+
+				// Convert filtered addresses back to flow.Address
+				var validAddresses []flow.Address
+				for _, addr := range filteredAddresses {
+					validAddresses = append(validAddresses, flow.HexToAddress(addr))
 				}
-				if len(acct.Keys) == 0 {
-					log.Debug().Msgf("Account has no keys: %v", addr)
-					// save account with blank public key to avoid querying it again
-					keys = append(keys, model.PublicKeyAccountIndexer{
-						PublicKey: "blank",
-						Account:   add0xPrefix(addr),
-						Weight:    0,
-						KeyId:     0,
-					})
-				} else {
-					for _, key := range acct.Keys {
-						// clean up the public key, remove the 0x prefix
+
+				for _, addr := range validAddresses {
+					addrStr := addr.String()
+					if _, ok := ignoreAccounts[addrStr]; ok {
+						continue
+					}
+					// time.Sleep(time.Duration(pauseInterval) * time.Millisecond)
+					acct, err := client.GetAccount(ctx, addr)
+
+					if err != nil {
+						log.Error().Err(err).Msg("Failed to get account")
+						errorAddresses[addrStr] = true
+						continue
+					}
+					if acct == nil {
+						log.Debug().Msgf("Account not found: %v", addrStr)
+						continue
+					}
+					if acct.Keys == nil {
+						log.Debug().Msgf("Account has nil Keys: %v", addrStr)
+						continue
+					}
+					if len(acct.Keys) == 0 {
+						log.Debug().Msgf("Account has no keys: %v", addrStr)
+						// save account with blank public key to avoid querying it again
 						keys = append(keys, model.PublicKeyAccountIndexer{
-							PublicKey: strip0xPrefix(key.PublicKey.String()),
-							Account:   add0xPrefix(addr),
-							Weight:    key.Weight,
-							KeyId:     key.Index,
+							PublicKey: "blank",
+							Account:   add0xPrefix(addrStr),
+							Weight:    0,
+							KeyId:     0,
 						})
+					} else {
+						for _, key := range acct.Keys {
+							// clean up the public key, remove the 0x prefix
+							keys = append(keys, model.PublicKeyAccountIndexer{
+								PublicKey: strip0xPrefix(key.PublicKey.String()),
+								Account:   add0xPrefix(addrStr),
+								Weight:    key.Weight,
+								KeyId:     key.Index,
+							})
+						}
 					}
 				}
+
+				errHandler := handler(keys)
+				if errHandler != nil {
+					log.Error().Err(err).Msg("Failed to handle keys")
+				}
+/*
+				for eAddr := range errorAddresses {
+					log.Debug().Msgf("addressChan: Process again address to error list: %v", eAddr)
+				//	addressChan <- []flow.Address{flow.HexToAddress(eAddr)}
+				}
+*/
 			}
-
-			errHandler := handler(keys)
-			if errHandler != nil {
-				log.Error().Err(err).Msg("Failed to handle keys")
-
-			}
-
-			// process error addresses
-			for _, addr := range accountAddresses {
-				log.Debug().Msgf("Process again address to error list: %v", addr)
-				addressChan <- []flow.Address{flow.HexToAddress(addr)}
-			}
-
-			// add wait time in seconds
-			time.Sleep(time.Duration(pauseInterval) * time.Second)
 		}
 	}()
 
