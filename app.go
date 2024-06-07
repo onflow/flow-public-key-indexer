@@ -102,7 +102,7 @@ func (a *App) Run() {
 
 	if a.p.EnableSyncData {
 		log.Info().Msgf("Data Sync service is enabled")
-		go a.bulkLoad(addressChan, currentBlock)
+		go a.bulkLoad(addressChan)
 	}
 
 	if a.p.EnableIncremental {
@@ -135,7 +135,12 @@ func (a *App) loadIncrementalData(addressChan chan []flow.Address) {
 	}()
 }
 
-func (a *App) bulkLoad(addressChan chan []flow.Address, currentBlock *flow.BlockHeader) {
+func (a *App) bulkLoad(addressChan chan []flow.Address) {
+	currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(context.Background(), true)
+	if err != nil {
+		log.Error().Err(err).Msg("Could not get current block height from default flow client")
+	}
+
 	// continuously run the bulk load process
 	for {
 		start := time.Now()
