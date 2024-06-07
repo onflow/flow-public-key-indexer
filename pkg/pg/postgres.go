@@ -109,7 +109,6 @@ func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
 		}
 	}
 
-	s.logger.Debug().Msgf("Not in db addresses %v", len(nonExistingAddresses))
 	return nonExistingAddresses, nil
 }
 
@@ -147,7 +146,6 @@ func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 }
 
 func (s Store) UpdateDistinctCount() {
-	s.logger.Debug().Msg("UpdateDistinctCount called")
 	// Acquire a slot in the semaphore
 	s.done <- struct{}{}
 	defer func() {
@@ -205,7 +203,6 @@ func (s Store) GetLoadedBlockHeight() (uint64, error) {
 }
 
 func (s Store) RemoveAccountForReloading(account string) {
-	s.logger.Debug().Msgf("remove acct %v", account)
 	sqlStatement := `DELETE FROM publickeyindexer WHERE account = $2;`
 	err := s.db.Raw(sqlStatement, account).Error
 	if err != nil {

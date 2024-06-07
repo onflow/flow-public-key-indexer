@@ -74,7 +74,8 @@ func (a *App) Initialize(params Params) {
 }
 
 func (a *App) Run() {
-	addressChan := make(chan []flow.Address)
+	bufferSize := 100
+	addressChan := make(chan []flow.Address, bufferSize)
 	currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(context.Background(), true)
 
 	if err != nil {
@@ -162,11 +163,13 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 	start := time.Now()
 	loadedBlkHeight, _ := a.DB.GetLoadedBlockHeight()
 	currentHeight, errCurr := a.flowClient.GetCurrentBlockHeight()
+	blockRange := currentHeight - loadedBlkHeight
 	if errCurr != nil {
 		log.Error().Err(errCurr).Msg("could not get current block height")
 		return
 	}
-	log.Debug().Msgf("Starting incremental load from block %d", loadedBlkHeight)
+
+	log.Info().Msgf("Starting Inc Load, from %d, to: %d, range to load %d", loadedBlkHeight, currentHeight, blockRange)
 
 	var synchToBlockHeight uint64
 	var err error
@@ -180,14 +183,14 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 		a.DB.UpdateLoadedBlockHeight(synchToBlockHeight)
 	}
 
-	log.Info().Msgf("Finished Inc Load, %f sec, from: %d to: %d blockHeight, range %d", duration.Seconds(), loadedBlkHeight, synchToBlockHeight, synchToBlockHeight-loadedBlkHeight)
+	log.Info().Msgf("Finished Inc Load, %f sec, from: %d to: %d blockHeight, range loaded %d", duration.Seconds(), loadedBlkHeight, synchToBlockHeight, synchToBlockHeight-loadedBlkHeight)
 
 	currentBlockHeight, _ := a.flowClient.GetCurrentBlockHeight()
 	// check if processing events took too long to wait for another interval and run an extra incremental load
-	blockRange := currentBlockHeight - synchToBlockHeight
-	if blockRange > uint64(a.p.WaitNumBlocks) {
+	newBlockRange := currentBlockHeight - synchToBlockHeight
+	if newBlockRange > uint64(a.p.WaitNumBlocks) {
 		refreshBlock := currentBlockHeight - uint64(a.p.MaxBlockRange)
-		log.Warn().Msgf("Incremental load is lagging, running incremental at %d, %d blocks", refreshBlock, blockRange)
+		log.Warn().Msgf("Incremental load is lagging, running incremental at %d, %d blocks", refreshBlock, newBlockRange)
 		synchToBlockHeight, _ = a.dataLoader.RunIncAddressesLoader(addressChan, refreshBlock, currentBlockHeight)
 		a.DB.UpdateLoadedBlockHeight(synchToBlockHeight)
 	}

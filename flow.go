@@ -85,7 +85,6 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 	}
 	for _, event := range events {
 		for _, evt := range event.Events {
-			log.Debug().Msgf("event type %v", evt.Type)
 			var pkAddr PublicKeyEvent
 			payload, err := jsoncdc.Decode(evt.Payload)
 			if err != nil {
