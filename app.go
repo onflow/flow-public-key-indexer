@@ -12,25 +12,26 @@ import (
 )
 
 type Params struct {
-	LogLevel            string `default:"info"`
-	Port                string `default:"8080"`
-	FlowUrl1            string `default:"access.mainnet.nodes.onflow.org:9000"`
-	FlowUrl2            string
-	FlowUrl3            string
-	FlowUrl4            string
-	AllFlowUrls         []string `ignored:"true"`
-	ChainId             string   `default:"flow-mainnet"`
-	MaxAcctKeys         int      `default:"1000"`
-	BatchSize           int      `default:"100"`
-	IgnoreZeroWeight    bool     `default:"true"`
-	IgnoreRevoked       bool     `default:"true"`
-	WaitNumBlocks       int      `default:"200"`
-	BlockPolIntervalSec int      `default:"180"`
-	MaxBlockRange       int      `default:"600"`
-	FetchSlowDownMs     int      `default:"50"`
-	PurgeOnStart        bool     `default:"false"`
-	EnableSyncData      bool     `default:"true"`
-	EnableIncremental   bool     `default:"true"`
+	LogLevel               string `default:"info"`
+	Port                   string `default:"8080"`
+	FlowUrl1               string `default:"access.mainnet.nodes.onflow.org:9000"`
+	FlowUrl2               string
+	FlowUrl3               string
+	FlowUrl4               string
+	AllFlowUrls            []string `ignored:"true"`
+	ChainId                string   `default:"flow-mainnet"`
+	MaxAcctKeys            int      `default:"1000"`
+	BatchSize              int      `default:"100"`
+	IgnoreZeroWeight       bool     `default:"true"`
+	IgnoreRevoked          bool     `default:"true"`
+	WaitNumBlocks          int      `default:"200"`
+	BlockPolIntervalSec    int      `default:"180"`
+	SyncDataPolIntervalMin int      `default:"10"`
+	MaxBlockRange          int      `default:"600"`
+	FetchSlowDownMs        int      `default:"50"`
+	PurgeOnStart           bool     `default:"false"`
+	EnableSyncData         bool     `default:"true"`
+	EnableIncremental      bool     `default:"true"`
 
 	PostgreSQLHost              string        `default:"localhost"`
 	PostgreSQLPort              uint16        `default:"5432"`
@@ -145,17 +146,17 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 		}
 
 		start := time.Now()
-		log.Info().Msg("Start Bulk Key Load")
+		log.Info().Msgf("Start Bulk Key Load, %v", currentBlock.Height)
 		errLoad := a.dataLoader.RunAllAddressesLoader(addressChan, currentBlock)
 
 		if errLoad != nil {
 			log.Error().Err(errLoad).Msg("could not bulk load public keys")
 		}
 		duration := time.Since(start)
-		log.Info().Msgf("End Bulk Load, duration %f min", duration.Minutes())
+		log.Info().Msgf("End Bulk Load, duration %f min, %v", duration.Minutes(), currentBlock.Height)
 
 		// Add a delay if needed to prevent it from running too frequently
-		time.Sleep(1 * time.Minute) // Adjust the sleep duration as needed
+		time.Sleep(time.Duration(a.p.SyncDataPolIntervalMin) * time.Minute) // Adjust the sleep duration as needed
 	}
 }
 
