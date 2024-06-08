@@ -199,7 +199,7 @@ func processAddresses(
 
 		acct, err := client.GetAccount(ctx, addr)
 		if err != nil {
-			log.Warn().Err(err).Msgf("Failed to get account, v%", addrStr)
+			log.Warn().Err(err).Msgf("Failed to get account, %v", addrStr)
 			errorAddresses[addrStr] = true
 			continue
 		}
