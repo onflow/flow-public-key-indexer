@@ -92,6 +92,7 @@ func InitAddressProvider(
 			return false, nil
 		}
 		if strings.Contains(err.Error(), failedToGetStoragedUsed) {
+			log.Warn().Err(err).Msgf("Failed to get storage used for address %s", address.Hex())
 			return false, nil
 		}
 		return false, err
@@ -212,7 +213,7 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 			addresses = append(addresses, addr)
 		}
 		if len(addresses) > 0 {
-			p.log.Debug().Msgf("addressChan: Sending %d addresses", len(addresses))
+			p.log.Debug().Msgf("Bulk, addressChan: Sending %d addresses", len(addresses))
 			addressChan <- addresses
 		}
 

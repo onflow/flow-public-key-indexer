@@ -85,7 +85,6 @@ func (s Store) AddressIsValid(address string) bool {
 		log.Debug().Err(err).Msg("Error checking if account exists")
 		return false
 	}
-	s.logger.Debug().Msgf("address %v exists: %v", address, count > 0)
 	return count > 0
 }
 

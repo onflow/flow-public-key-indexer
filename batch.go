@@ -71,11 +71,12 @@ func GetAllAddresses(
 	validateAddress func(string) bool,
 ) (height uint64, err error) {
 	flowClient := getFlowClient(conf.FlowAccessNodeURLs[0])
-
+	log.Debug().Msg("Bulk: Initialized Address Provider")
 	ap, err := InitAddressProvider(ctx, log, conf.ChainID, currentBlock.ID, flowClient, conf.Pause, validateAddress)
 	if err != nil {
 		return 0, err
 	}
+	log.Debug().Msg("Bulk: Initialized address provider, generate address batches")
 	ap.GenerateAddressBatches(addressChan, conf.BatchSize)
 
 	return currentBlock.Height, nil
@@ -146,84 +147,99 @@ func ProcessAddressChannel(
 				}
 
 				// Process the addresses concurrently
-				go func(accountAddresses []flow.Address) {
-					var keys []model.PublicKeyAccountIndexer
-					log.Debug().Msgf("Validating %d addresses", len(accountAddresses))
-					var addrs []string
-					// Convert flow.Address to string
-					for _, addr := range accountAddresses {
-						addrs = append(addrs, add0xPrefix(addr.String()))
-					}
-					filteredAddresses, err := filter(addrs)
-					if err != nil {
-						log.Error().Err(err).Msg("Failed to filter addresses")
-						return
-					}
-
-					log.Debug().Msgf("Processing addresses: %v", len(filteredAddresses))
-					if len(filteredAddresses) == 0 {
-						return
-					}
-
-					// Convert filtered addresses back to flow.Address
-					var validAddresses []flow.Address
-					for _, addr := range filteredAddresses {
-						validAddresses = append(validAddresses, flow.HexToAddress(addr))
-					}
-
-					for _, addr := range validAddresses {
-						addrStr := addr.String()
-						if _, ok := ignoreAccounts[addrStr]; ok {
-							continue
-						}
-
-						acct, err := client.GetAccount(ctx, addr)
-						if err != nil {
-							log.Error().Err(err).Msg("Failed to get account")
-							errorAddresses[addrStr] = true
-							continue
-						}
-						if acct == nil {
-							log.Debug().Msgf("Account not found: %v", addrStr)
-							continue
-						}
-						if acct.Keys == nil {
-							log.Debug().Msgf("Account has nil Keys: %v", addrStr)
-							continue
-						}
-						if len(acct.Keys) == 0 {
-							log.Debug().Msgf("Account has no keys: %v", addrStr)
-							// Save account with blank public key to avoid querying it again
-							keys = append(keys, model.PublicKeyAccountIndexer{
-								PublicKey: "blank",
-								Account:   add0xPrefix(addrStr),
-								Weight:    0,
-								KeyId:     0,
-							})
-						} else {
-							for _, key := range acct.Keys {
-								// Clean up the public key, remove the 0x prefix
-								keys = append(keys, model.PublicKeyAccountIndexer{
-									PublicKey: strip0xPrefix(key.PublicKey.String()),
-									Account:   add0xPrefix(addrStr),
-									Weight:    key.Weight,
-									KeyId:     key.Index,
-								})
-							}
-						}
-					}
-
-					// Send the keys to the results channel
-					resultsChan <- keys
-
-					for eAddr := range errorAddresses {
-						log.Warn().Msgf("addressChan: Process again address to error list: %v", eAddr)
-						addressChan <- []flow.Address{flow.HexToAddress(eAddr)}
-					}
-				}(accountAddresses)
+				go processAddresses(accountAddresses, ctx, log, client, addressChan, resultsChan, filter)
 			}
 		}
 	}()
 
 	return nil
+}
+
+func processAddresses(
+	accountAddresses []flow.Address,
+	ctx context.Context,
+	log zerolog.Logger,
+	client *flowclient.Client,
+	addressChan chan []flow.Address,
+	resultsChan chan []model.PublicKeyAccountIndexer,
+	filter func([]string) ([]string, error)) {
+
+	var keys []model.PublicKeyAccountIndexer
+	log.Debug().Msgf("Validating %d addresses", len(accountAddresses))
+	var addrs []string
+	// Convert flow.Address to string
+	for _, addr := range accountAddresses {
+		addrs = append(addrs, add0xPrefix(addr.String()))
+	}
+
+	filteredAddresses, err := filter(addrs)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to filter addresses")
+		return
+	}
+
+	log.Debug().Msgf("Processing addresses: %v", len(filteredAddresses))
+	if len(filteredAddresses) == 0 {
+		return
+	}
+
+	// Convert filtered addresses back to flow.Address
+	var validAddresses []flow.Address
+	for _, addr := range filteredAddresses {
+		validAddresses = append(validAddresses, flow.HexToAddress(addr))
+	}
+
+	for _, addr := range validAddresses {
+		addrStr := addr.String()
+		if _, ok := ignoreAccounts[addrStr]; ok {
+			continue
+		}
+
+		time.Sleep(100 * time.Millisecond)
+
+		acct, err := client.GetAccount(ctx, addr)
+		if err != nil {
+			log.Warn().Err(err).Msgf("Failed to get account, v%", addrStr)
+			errorAddresses[addrStr] = true
+			continue
+		}
+		if acct == nil {
+			log.Debug().Msgf("Account not found: %v", addrStr)
+			continue
+		}
+		if acct.Keys == nil {
+			log.Debug().Msgf("Account has nil Keys: %v", addrStr)
+			continue
+		}
+		if len(acct.Keys) == 0 {
+			log.Debug().Msgf("Account has no keys: %v", addrStr)
+			// Save account with blank public key to avoid querying it again
+			keys = append(keys, model.PublicKeyAccountIndexer{
+				PublicKey: "blank",
+				Account:   add0xPrefix(addrStr),
+				Weight:    0,
+				KeyId:     0,
+			})
+		} else {
+			for _, key := range acct.Keys {
+				// Clean up the public key, remove the 0x prefix
+				keys = append(keys, model.PublicKeyAccountIndexer{
+					PublicKey: strip0xPrefix(key.PublicKey.String()),
+					Account:   add0xPrefix(addrStr),
+					Weight:    key.Weight,
+					KeyId:     key.Index,
+				})
+			}
+		}
+	}
+
+	// Send the keys to the results channel
+	resultsChan <- keys
+
+	/*
+		for eAddr := range errorAddresses {
+			log.Warn().Msgf("addressChan: Process again address to error list: %v", eAddr)
+			addressChan <- []flow.Address{flow.HexToAddress(eAddr)}
+		}
+	*/
 }

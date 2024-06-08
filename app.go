@@ -137,13 +137,13 @@ func (a *App) loadIncrementalData(addressChan chan []flow.Address) {
 }
 
 func (a *App) bulkLoad(addressChan chan []flow.Address) {
-	currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(context.Background(), true)
-	if err != nil {
-		log.Error().Err(err).Msg("Could not get current block height from default flow client")
-	}
-
 	// continuously run the bulk load process
 	for {
+		currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(context.Background(), true)
+		if err != nil {
+			log.Error().Err(err).Msg("Could not get current block height from default flow client")
+		}
+
 		start := time.Now()
 		log.Info().Msg("Start Bulk Key Load")
 		errLoad := a.dataLoader.RunAllAddressesLoader(addressChan, currentBlock)
@@ -155,7 +155,7 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 		log.Info().Msgf("End Bulk Load, duration %f min", duration.Minutes())
 
 		// Add a delay if needed to prevent it from running too frequently
-		time.Sleep(10 * time.Minute) // Adjust the sleep duration as needed
+		time.Sleep(1 * time.Minute) // Adjust the sleep duration as needed
 	}
 }
 
