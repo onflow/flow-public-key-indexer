@@ -85,7 +85,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 	}
 	for _, event := range events {
 		for _, evt := range event.Events {
-			var pkAddr PublicKeyEvent
+			var pkAddr string
 			payload, err := jsoncdc.Decode(evt.Payload)
 			if err != nil {
 				log.Warn().Msgf("Could not decode payload %v %v", evt.Type, err.Error())
@@ -102,7 +102,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 				allAccountAddresses = append(allAccountAddresses, address)
 			}
 			if evt.Type == "flow.AccountKeyRemoved" {
-				allAccountAddresses = append(allAccountAddresses, pkAddr.account)
+				allAccountAddresses = append(allAccountAddresses, pkAddr)
 			}
 		}
 	}

@@ -33,15 +33,6 @@ type DataLoader struct {
 	incAddressChan [][]flow.Address
 }
 
-type PublicKeyActions struct {
-	addresses []string
-}
-
-type PublicKeyEvent struct {
-	publicKey string
-	account   string
-}
-
 func NewDataLoader(DB pg.Store, fa FlowAdapter, p Params) *DataLoader {
 	s := DataLoader{}
 	s.incAddressChan = [][]flow.Address{}

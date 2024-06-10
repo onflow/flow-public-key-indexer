@@ -208,6 +208,7 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 			addresses = append(addresses, add0xPrefix(addr.Hex()))
 		}
 		if len(addresses) > 0 {
+			p.log.Debug().Msgf("Bulk, filtering %d addresses", len(addresses))
 			filteredAddresses, err := batchAddressFilter(addresses)
 			if err != nil {
 				p.log.Error().Err(err).Msg("Error filtering addresses")
