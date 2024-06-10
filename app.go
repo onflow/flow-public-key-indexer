@@ -21,7 +21,7 @@ type Params struct {
 	AllFlowUrls            []string `ignored:"true"`
 	ChainId                string   `default:"flow-mainnet"`
 	MaxAcctKeys            int      `default:"1000"`
-	BatchSize              int      `default:"100"`
+	BatchSize              int      `default:"50000"`
 	IgnoreZeroWeight       bool     `default:"true"`
 	IgnoreRevoked          bool     `default:"true"`
 	WaitNumBlocks          int      `default:"200"`
