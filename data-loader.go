@@ -19,10 +19,8 @@
 package main
 
 import (
-	"context"
 	_ "embed"
 	"example/flow-key-indexer/pkg/pg"
-	"time"
 
 	"github.com/onflow/flow-go-sdk"
 	"github.com/rs/zerolog/log"
@@ -51,20 +49,6 @@ func NewDataLoader(DB pg.Store, fa FlowAdapter, p Params) *DataLoader {
 	s.fa = fa
 	s.config = p
 	return &s
-}
-
-func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address, block *flow.BlockHeader) error {
-	config := DefaultConfig
-	config.FlowAccessNodeURLs = s.config.AllFlowUrls
-	config.ChainID = flow.ChainID(s.config.ChainId)
-	config.BatchSize = s.config.BatchSize
-	config.ignoreZeroWeight = s.config.IgnoreZeroWeight
-	config.ignoreRevoked = s.config.IgnoreRevoked
-	config.maxAcctKeys = s.config.MaxAcctKeys
-	config.Pause = time.Duration(s.config.FetchSlowDownMs * int(time.Millisecond))
-
-	_, err := GetAllAddresses(context.Background(), log.Logger, config, addressChan, block, s.DB.AddressIsValid)
-	return err
 }
 
 func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, blockHeight uint64, endBlockHeight uint64) (uint64, error) {

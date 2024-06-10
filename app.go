@@ -27,8 +27,9 @@ type Params struct {
 	WaitNumBlocks          int      `default:"200"`
 	BlockPolIntervalSec    int      `default:"180"`
 	SyncDataPolIntervalMin int      `default:"10"`
+	SyncDataStartIndex     int      `default:"30000000"`
 	MaxBlockRange          int      `default:"600"`
-	FetchSlowDownMs        int      `default:"50"`
+	FetchSlowDownMs        int      `default:"500"`
 	PurgeOnStart           bool     `default:"false"`
 	EnableSyncData         bool     `default:"true"`
 	EnableIncremental      bool     `default:"true"`
@@ -138,20 +139,27 @@ func (a *App) loadIncrementalData(addressChan chan []flow.Address) {
 }
 
 func (a *App) bulkLoad(addressChan chan []flow.Address) {
+	ctx := context.Background()
+	startIndex := uint(a.p.SyncDataStartIndex)
 	// continuously run the bulk load process
 	for {
-		currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(context.Background(), true)
+		start := time.Now()
+		currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(ctx, true)
 		if err != nil {
 			log.Error().Err(err).Msg("Could not get current block height from default flow client")
 		}
 
-		start := time.Now()
 		log.Info().Msgf("Start Bulk Key Load, %v", currentBlock.Height)
-		errLoad := a.dataLoader.RunAllAddressesLoader(addressChan, currentBlock)
 
+		ap, errLoad := InitAddressProvider(ctx, log.Logger, flow.ChainID(a.p.ChainId), currentBlock.ID, a.flowClient.Client, time.Duration(a.p.FetchSlowDownMs)*time.Millisecond, startIndex)
 		if errLoad != nil {
 			log.Error().Err(errLoad).Msg("could not bulk load public keys")
 		}
+		// set start index based on found address last index
+		startIndex = ap.lastAddressIndex
+		log.Debug().Msgf("Bulk: Last address index %d", startIndex)
+		ap.GenerateAddressBatches(addressChan, a.p.BatchSize, a.DB.AddressesNotInDatabase)
+
 		duration := time.Since(start)
 		log.Info().Msgf("End Bulk Load, duration %f min, %v", duration.Minutes(), currentBlock.Height)
 
@@ -170,7 +178,7 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 		return
 	}
 
-	log.Info().Msgf("Starting Inc Load, from %d, to: %d, range to load %d", loadedBlkHeight, currentHeight, blockRange)
+	log.Info().Msgf("Starting Inc Load, from %d, to: %d, to load %d", loadedBlkHeight, currentHeight, blockRange)
 
 	var synchToBlockHeight uint64
 	var err error
@@ -184,7 +192,7 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 		a.DB.UpdateLoadedBlockHeight(synchToBlockHeight)
 	}
 
-	log.Info().Msgf("Finished Inc Load, %f sec, from: %d to: %d blockHeight, range loaded %d", duration.Seconds(), loadedBlkHeight, synchToBlockHeight, synchToBlockHeight-loadedBlkHeight)
+	log.Info().Msgf("Finished Inc Load, %f sec, from: %d to: %d, loaded %d", duration.Seconds(), loadedBlkHeight, synchToBlockHeight, synchToBlockHeight-loadedBlkHeight)
 
 	currentBlockHeight, _ := a.flowClient.GetCurrentBlockHeight()
 	// check if processing events took too long to wait for another interval and run an extra incremental load

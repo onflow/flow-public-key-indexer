@@ -62,26 +62,6 @@ var DefaultConfig = Config{
 	ChainID:            "flow-mainnet",
 }
 
-func GetAllAddresses(
-	ctx context.Context,
-	log zerolog.Logger,
-	conf Config,
-	addressChan chan []flow.Address,
-	currentBlock *flow.BlockHeader,
-	validateAddress func(string) bool,
-) (height uint64, err error) {
-	flowClient := getFlowClient(conf.FlowAccessNodeURLs[0])
-	log.Debug().Msg("Bulk: Initialized Address Provider")
-	ap, err := InitAddressProvider(ctx, log, conf.ChainID, currentBlock.ID, flowClient, conf.Pause, validateAddress)
-	if err != nil {
-		return 0, err
-	}
-	log.Debug().Msg("Bulk: Initialized address provider, generate address batches")
-	ap.GenerateAddressBatches(addressChan, conf.BatchSize)
-
-	return currentBlock.Height, nil
-}
-
 // Ignore list for accounts that keep getting same public keys added
 var ignoreAccounts = map[string]bool{
 	"0xbf48a20670f179b8": true, // placeholder, replace when account identified
@@ -147,7 +127,7 @@ func ProcessAddressChannel(
 				}
 
 				// Process the addresses concurrently
-				go processAddresses(accountAddresses, ctx, log, client, addressChan, resultsChan, filter)
+				go processAddresses(accountAddresses, ctx, log, client, resultsChan)
 			}
 		}
 	}()
@@ -160,34 +140,26 @@ func processAddresses(
 	ctx context.Context,
 	log zerolog.Logger,
 	client *flowclient.Client,
-	addressChan chan []flow.Address,
-	resultsChan chan []model.PublicKeyAccountIndexer,
-	filter func([]string) ([]string, error)) {
+	resultsChan chan []model.PublicKeyAccountIndexer) {
 
 	var keys []model.PublicKeyAccountIndexer
-	log.Debug().Msgf("Validating %d addresses", len(accountAddresses))
 	var addrs []string
 	// Convert flow.Address to string
 	for _, addr := range accountAddresses {
 		addrs = append(addrs, add0xPrefix(addr.String()))
 	}
 
-	filteredAddresses, err := filter(addrs)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to filter addresses")
-		return
-	}
-
-	log.Debug().Msgf("Processing addresses: %v", len(filteredAddresses))
-	if len(filteredAddresses) == 0 {
+	if len(addrs) == 0 {
 		return
 	}
 
 	// Convert filtered addresses back to flow.Address
 	var validAddresses []flow.Address
-	for _, addr := range filteredAddresses {
+	for _, addr := range addrs {
 		validAddresses = append(validAddresses, flow.HexToAddress(addr))
 	}
+
+	log.Debug().Msgf("Processing addresses: %v", len(validAddresses))
 
 	for _, addr := range validAddresses {
 		addrStr := addr.String()
@@ -236,10 +208,4 @@ func processAddresses(
 	// Send the keys to the results channel
 	resultsChan <- keys
 
-	/*
-		for eAddr := range errorAddresses {
-			log.Warn().Msgf("addressChan: Process again address to error list: %v", eAddr)
-			addressChan <- []flow.Address{flow.HexToAddress(eAddr)}
-		}
-	*/
 }

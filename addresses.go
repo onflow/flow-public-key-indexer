@@ -56,7 +56,7 @@ func InitAddressProvider(
 	referenceBlockID flow.Identifier,
 	client *client.Client,
 	pause time.Duration,
-	valid func(string) bool,
+	startIndex uint,
 ) (*AddressProvider, error) {
 	ap := &AddressProvider{
 		log:              log,
@@ -72,10 +72,7 @@ func InitAddressProvider(
 		searchStep += 1
 		address := ap.indexToAddress(index)
 
-		// skip already validated addresses
-		if valid(address.Hex()) {
-			return true, nil
-		}
+		log.Debug().Str("address", address.Hex()).Msgf("Checking address %d", index)
 		// This script will fail with endOfAccountsError
 		// if the account (address at given index) doesn't exist yet
 		_, err := client.ExecuteScriptAtBlockID(
@@ -92,14 +89,13 @@ func InitAddressProvider(
 			return false, nil
 		}
 		if strings.Contains(err.Error(), failedToGetStoragedUsed) {
-			log.Warn().Err(err).Msgf("Failed to get storage used for address %s", address.Hex())
 			return false, nil
 		}
 		return false, err
 	}
 
 	// We assume address #2 exists
-	lastAddressIndex, err := ap.getLastAddress(1, 2, true, addressExistsAtIndex)
+	lastAddressIndex, err := ap.getLastAddress(startIndex, startIndex*2, false, addressExistsAtIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -191,10 +187,10 @@ var brokenAddresses = map[flow.Address]struct{}{
 	flow.HexToAddress("b0e80595d267f4eb"): {},
 }
 
-func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Address, batchSize int) {
+func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Address, batchSize int, batchAddressFilter func([]string) ([]string, error)) {
 	var done bool
 	for {
-		addresses := make([]flow.Address, 0)
+		addresses := make([]string, 0)
 
 		for i := 0; i < batchSize; i++ {
 			addr, oob := p.GetNextAddress()
@@ -209,12 +205,23 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 				i--
 				continue
 			}
-
-			addresses = append(addresses, addr)
+			addresses = append(addresses, add0xPrefix(addr.Hex()))
 		}
 		if len(addresses) > 0 {
-			p.log.Debug().Msgf("Bulk, addressChan: Sending %d addresses", len(addresses))
-			addressChan <- addresses
+			filteredAddresses, err := batchAddressFilter(addresses)
+			if err != nil {
+				p.log.Error().Err(err).Msg("Error filtering addresses")
+				return
+			}
+			addrs := make([]flow.Address, 0, len(filteredAddresses))
+			for _, addr := range filteredAddresses {
+				addrs = append(addrs, flow.HexToAddress(addr))
+			}
+			if len(addrs) == 0 {
+				continue
+			}
+			p.log.Debug().Msgf("Bulk, addressChan: Sending %d addresses", len(filteredAddresses))
+			addressChan <- addrs
 		}
 
 		if done {
