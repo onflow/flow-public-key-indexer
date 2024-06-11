@@ -78,16 +78,6 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 	return nil
 }
 
-func (s Store) AddressIsValid(address string) bool {
-	var count int64
-	err := s.db.Model(&model.PublicKeyAccountIndexer{}).Where("account = ?", address).Count(&count).Error
-	if err != nil {
-		log.Debug().Err(err).Msg("Error checking if account exists")
-		return false
-	}
-	return count > 0
-}
-
 func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
 	var existingAddresses []string
 	err := s.db.Model(&model.PublicKeyAccountIndexer{}).Where("account IN ?", addresses).Pluck("account", &existingAddresses).Error
@@ -106,24 +96,10 @@ func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
 			nonExistingAddresses = append(nonExistingAddresses, addr)
 		}
 	}
-
+	log.Info().Msgf("DB: Found %v addresses not in database", len(nonExistingAddresses))
 	return nonExistingAddresses, nil
 }
 
-func (s Store) GetUpdatedBlockHeight() (uint64, error) {
-	query := "SELECT updatedBlockheight FROM publickeyindexer_stats;"
-	var blockNumber uint64
-
-	err := s.db.Raw(
-		query,
-	).Scan(&blockNumber).Error
-
-	if err != nil {
-		s.logger.Error().Err(err).Msgf("get loading block height %v", blockNumber)
-	}
-
-	return blockNumber, nil
-}
 func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 	query := "SELECT uniquePublicKeys FROM publickeyindexer_stats;"
 
