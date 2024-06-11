@@ -72,7 +72,7 @@ func InitAddressProvider(
 		searchStep += 1
 		address := ap.indexToAddress(index)
 
-		log.Info().Str("address", address.Hex()).Msgf("Searching last address %d", index)
+		log.Info().Str("Bulk: address", address.Hex()).Msgf("Searching last address %d", index)
 		// This script will fail with endOfAccountsError
 		// if the account (address at given index) doesn't exist yet
 		_, err := client.ExecuteScriptAtBlockID(
@@ -101,7 +101,7 @@ func InitAddressProvider(
 	}
 
 	log.Info().
-		Str("lastAddress", ap.indexToAddress(lastAddressIndex).Hex()).
+		Str("Bulk: lastAddress", ap.indexToAddress(lastAddressIndex).Hex()).
 		Uint("numAccounts", lastAddressIndex).
 		Int("stepsNeeded", searchStep).
 		Msg("")
@@ -168,7 +168,7 @@ func (p *AddressProvider) GetNextAddress() (address flow.Address, isOutOfBounds 
 
 	// Give some progress information every so often
 	if p.currentIndex%(p.lastAddressIndex/10) == 0 {
-		p.log.Info().Msgf("Processed %v %% accounts", p.currentIndex/(p.lastAddressIndex/10)*10)
+		p.log.Info().Msgf("Bulk: Processed %v %% accounts", p.currentIndex/(p.lastAddressIndex/10)*10)
 	}
 
 	if p.currentIndex > p.lastAddressIndex {
@@ -208,10 +208,10 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 			addresses = append(addresses, add0xPrefix(addr.Hex()))
 		}
 		if len(addresses) > 0 {
-			p.log.Debug().Msgf("Bulk, filtering %d addresses", len(addresses))
+			p.log.Info().Msgf("Bulk: Filtering %d addresses", len(addresses))
 			filteredAddresses, err := batchAddressFilter(addresses)
 			if err != nil {
-				p.log.Error().Err(err).Msg("Error filtering addresses")
+				p.log.Error().Err(err).Msg("Bulk: Error filtering addresses")
 				return
 			}
 			addrs := make([]flow.Address, 0, len(filteredAddresses))
@@ -221,7 +221,7 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 			if len(addrs) == 0 {
 				continue
 			}
-			p.log.Debug().Msgf("Bulk, addressChan: Sending %d addresses", len(filteredAddresses))
+			p.log.Info().Msgf("Bulk: addressChan: Sending %d addresses", len(filteredAddresses))
 			addressChan <- addrs
 		}
 

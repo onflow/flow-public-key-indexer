@@ -159,7 +159,7 @@ func processAddresses(
 		validAddresses = append(validAddresses, flow.HexToAddress(addr))
 	}
 
-	log.Debug().Msgf("Processing addresses: %v", len(validAddresses))
+	log.Info().Msgf("Batch: Processing addresses: %v", len(validAddresses))
 
 	for _, addr := range validAddresses {
 		addrStr := addr.String()
@@ -171,20 +171,20 @@ func processAddresses(
 
 		acct, err := client.GetAccount(ctx, addr)
 		if err != nil {
-			log.Warn().Err(err).Msgf("Failed to get account, %v", addrStr)
+			log.Warn().Err(err).Msgf("Batch: Failed to get account, %v", addrStr)
 			errorAddresses[addrStr] = true
 			continue
 		}
 		if acct == nil {
-			log.Debug().Msgf("Account not found: %v", addrStr)
+			log.Warn().Msgf("Batch: Account not found: %v", addrStr)
 			continue
 		}
 		if acct.Keys == nil {
-			log.Debug().Msgf("Account has nil Keys: %v", addrStr)
+			log.Warn().Msgf("Batch: Account has nil Keys: %v", addrStr)
 			continue
 		}
 		if len(acct.Keys) == 0 {
-			log.Debug().Msgf("Account has no keys: %v", addrStr)
+			log.Warn().Msgf("Batch: Account has no keys: %v", addrStr)
 			// Save account with blank public key to avoid querying it again
 			keys = append(keys, model.PublicKeyAccountIndexer{
 				PublicKey: "blank",
