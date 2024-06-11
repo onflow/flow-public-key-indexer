@@ -121,19 +121,10 @@ func (a *App) loadIncrementalData(addressChan chan []flow.Address) {
 	a.incrementalLoad(addressChan)
 
 	ticker := time.NewTicker(time.Duration(a.p.BlockPolIntervalSec) * time.Second)
-	quit := make(chan struct{})
+
 	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				go func() {
-					a.incrementalLoad(addressChan)
-				}()
-			case <-quit:
-				log.Info().Msg("ticker is stopped")
-				ticker.Stop()
-				return
-			}
+		for range ticker.C {
+			a.incrementalLoad(addressChan)
 		}
 	}()
 }
