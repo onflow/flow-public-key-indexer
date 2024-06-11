@@ -144,7 +144,7 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 
 		ap, errLoad := InitAddressProvider(ctx, log.Logger, flow.ChainID(a.p.ChainId), currentBlock.ID, a.flowClient.Client, time.Duration(a.p.FetchSlowDownMs)*time.Millisecond, startIndex)
 		if errLoad != nil {
-			log.Error().Err(errLoad).Msg("could not bulk load public keys")
+			log.Error().Err(errLoad).Msg("Bulk, could not initialize address provider")
 		}
 		// set start index based on found address last index
 		startIndex = ap.lastAddressIndex
