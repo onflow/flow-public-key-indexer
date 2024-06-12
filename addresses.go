@@ -73,7 +73,7 @@ func InitAddressProvider(
 		searchStep += 1
 		address := ap.indexToAddress(index)
 
-		log.Info().Str("Bulk: address", address.Hex()).Msgf("Searching last address %d", index)
+		log.Debug().Str("Bulk: address", address.Hex()).Msgf("Searching last address %d", index)
 		// This script will fail with endOfAccountsError
 		// if the account (address at given index) doesn't exist yet
 		_, err := client.ExecuteScriptAtBlockID(
@@ -249,6 +249,9 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 			break
 		}
 	}
+	// Explicitly set the map to nil to ensure memory is released
+	existingAddresses = nil
+
 }
 
 func (p *AddressProvider) LastAddress() flow.Address {

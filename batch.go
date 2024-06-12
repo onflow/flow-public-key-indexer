@@ -54,21 +54,10 @@ type Config struct {
 	ignoreRevoked      bool
 }
 
-var DefaultConfig = Config{
-	BatchSize:          100,
-	AtBlockHeight:      0,
-	FlowAccessNodeURLs: []string{"access.mainnet.nodes.onflow.org:9000"},
-	Pause:              0,
-	ChainID:            "flow-mainnet",
-}
-
 // Ignore list for accounts that keep getting same public keys added
 var ignoreAccounts = map[string]bool{
 	"0xbf48a20670f179b8": true, // placeholder, replace when account identified
 }
-
-// addresses that error and need reprocessing
-var errorAddresses = map[string]bool{}
 
 func ProcessAddressChannel(
 	ctx context.Context,
@@ -127,7 +116,7 @@ func ProcessAddressChannel(
 				}
 
 				// Process the addresses concurrently
-				go processAddresses(accountAddresses, ctx, log, client, resultsChan, fetchSlowdown)
+				processAddresses(accountAddresses, ctx, log, client, resultsChan, fetchSlowdown)
 			}
 		}
 	}()
@@ -170,10 +159,12 @@ func processAddresses(
 
 		time.Sleep(time.Duration(fetchSlowdown) * time.Millisecond)
 
+		log.Debug().Msgf("Batch: Getting account: %v", addrStr)
 		acct, err := client.GetAccount(ctx, addr)
+		log.Debug().Msgf("Batch: Got account: %v", addrStr)
+
 		if err != nil {
 			log.Warn().Err(err).Msgf("Batch: Failed to get account, %v", addrStr)
-			errorAddresses[addrStr] = true
 			continue
 		}
 		if acct == nil {

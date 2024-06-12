@@ -47,7 +47,7 @@ func (s Store) Stats() model.PublicKeyStatus {
 }
 func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) error {
 	ctx := context.Background()
-	log.Debug().Msgf("Inserting %v public key accounts", len(pkis))
+	log.Debug().Msgf("DB: Inserting %v public key accounts", len(pkis))
 
 	insertedCount := 0
 

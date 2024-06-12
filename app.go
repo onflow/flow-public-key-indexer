@@ -129,9 +129,23 @@ func (a *App) loadIncrementalData(addressChan chan []flow.Address) {
 	}()
 }
 
+func (a *App) waitForAddressChanToReduce(addressChan chan []flow.Address, pause time.Duration) {
+	ticker := time.NewTicker(pause)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		log.Debug().Msgf("Address channel size %d", len(addressChan))
+		if len(addressChan) < 10 {
+			log.Debug().Msg("Address channel has cleared enough, run another bulk loader")
+			return
+		}
+	}
+}
+
 func (a *App) bulkLoad(addressChan chan []flow.Address) {
 	ctx := context.Background()
 	startIndex := uint(a.p.SyncDataStartIndex)
+	pause := time.Duration(a.p.FetchSlowDownMs) * time.Millisecond
 	// continuously run the bulk load process
 	for {
 		start := time.Now()
@@ -142,7 +156,7 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 
 		log.Info().Msgf("Bulk: Start Load, %v", currentBlock.Height)
 
-		ap, errLoad := InitAddressProvider(ctx, log.Logger, flow.ChainID(a.p.ChainId), currentBlock.ID, a.flowClient.Client, time.Duration(a.p.FetchSlowDownMs)*time.Millisecond, startIndex)
+		ap, errLoad := InitAddressProvider(ctx, log.Logger, flow.ChainID(a.p.ChainId), currentBlock.ID, a.flowClient.Client, pause, startIndex)
 		if errLoad != nil {
 			log.Error().Err(errLoad).Msg("Bulk, could not initialize address provider")
 		}
@@ -154,6 +168,8 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 		duration := time.Since(start)
 		log.Info().Msgf("Bulk: End Load, duration %f min, %v", duration.Minutes(), currentBlock.Height)
 
+		// wait for the address channel to reduce before running another bulk load
+		a.waitForAddressChanToReduce(addressChan, pause)
 		// Add a delay if needed to prevent it from running too frequently
 		time.Sleep(time.Duration(a.p.SyncDataPolIntervalMin) * time.Minute) // Adjust the sleep duration as needed
 	}
