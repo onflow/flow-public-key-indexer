@@ -78,6 +78,7 @@ func (a *App) Initialize(params Params) {
 func (a *App) Run() {
 	bufferSize := 100
 	addressChan := make(chan []flow.Address, bufferSize)
+	lowPriAddressChan := make(chan []flow.Address, bufferSize)
 	currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(context.Background(), true)
 
 	if err != nil {
@@ -101,11 +102,13 @@ func (a *App) Run() {
 	}
 
 	// start up process to handle addresses that are put in addressChan channel
-	ProcessAddressChannel(context.Background(), log.Logger, a.flowClient.Client, addressChan, a.DB.InsertPublicKeyAccounts, a.p.FetchSlowDownMs)
+	ProcessAddressChannels(context.Background(), log.Logger, a.flowClient.Client,
+		addressChan, lowPriAddressChan,
+		a.DB.InsertPublicKeyAccounts, a.p.FetchSlowDownMs)
 
 	if a.p.EnableSyncData {
 		log.Info().Msgf("Data Sync service is enabled")
-		go a.bulkLoad(addressChan)
+		go a.bulkLoad(lowPriAddressChan)
 	}
 
 	if a.p.EnableIncremental {

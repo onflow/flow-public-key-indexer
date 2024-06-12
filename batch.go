@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/onflow/flow-go-sdk"
+	"github.com/onflow/flow-go-sdk/client"
 	flowclient "github.com/onflow/flow-go-sdk/client"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
@@ -59,67 +60,91 @@ var ignoreAccounts = map[string]bool{
 	"0xbf48a20670f179b8": true, // placeholder, replace when account identified
 }
 
-func ProcessAddressChannel(
+func ProcessAddressChannels(
 	ctx context.Context,
 	log zerolog.Logger,
-	client *flowclient.Client,
-	addressChan chan []flow.Address,
+	client *client.Client,
+	highPriorityChan chan []flow.Address,
+	lowPriorityChan chan []flow.Address,
 	insertionHandler func([]model.PublicKeyAccountIndexer) error,
 	fetchSlowdown int,
 ) error {
 	if client == nil {
-		return fmt.Errorf("failed to initialize flow client")
+		return fmt.Errorf("batch: Failed to initialize flow client")
 	}
 
+	resultsChan := make(chan []model.PublicKeyAccountIndexer)
+
+	// Launch a goroutine to handle results
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				log.Info().Msg("Batch: Context done, exiting result handler")
+				return
+			case keys, ok := <-resultsChan:
+				if !ok {
+					log.Info().Msg("Batch: Results channel closed, exiting result handler")
+					return
+				}
+				errHandler := insertionHandler(keys)
+				if errHandler != nil {
+					log.Error().Err(errHandler).Msg("Batch: Failed to handle keys")
+				}
+			}
+		}
+	}()
+
+	// High-priority worker
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Error().Msgf("Recovered from panic: %v", r)
-			}
-		}()
-
-		// A separate channel to collect results from goroutines
-		resultsChan := make(chan []model.PublicKeyAccountIndexer)
-
-		// Launch a goroutine to handle results
-		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					log.Info().Msg("Context done, exiting result handler")
-					return
-				case keys, ok := <-resultsChan:
-					if !ok {
-						log.Info().Msg("Results channel closed, exiting result handler")
-						return
-					}
-
-					errHandler := insertionHandler(keys)
-					if errHandler != nil {
-						log.Error().Err(errHandler).Msg("Failed to handle keys")
-					}
-				}
+				log.Error().Msgf("Batch: High-priority worker recovered from panic: %v", r)
 			}
 		}()
 
 		for {
 			select {
 			case <-ctx.Done():
-				log.Info().Msg("Context done, exiting ProcessAddressChannel")
-				close(resultsChan)
+				log.Info().Msg("Batch: Context done, exiting high-priority worker")
 				return
-			case accountAddresses, ok := <-addressChan:
+			case accountAddresses, ok := <-highPriorityChan:
 				if !ok {
-					log.Info().Msg("Address channel closed, exiting ProcessAddressChannel")
-					close(resultsChan)
+					log.Warn().Msg("Batch: High-priority channel closed, exiting high-priority worker")
 					return
 				}
-
-				// Process the addresses concurrently
-				processAddresses(accountAddresses, ctx, log, client, resultsChan, fetchSlowdown)
+				// Create a new goroutine to process each high-priority address array
+				log.Debug().Msgf("Batch: High-priority worker processing %d addresses", len(accountAddresses))
+				go processAddresses(accountAddresses, ctx, log, client, resultsChan, fetchSlowdown)
 			}
 		}
 	}()
+
+	// Low-priority workers
+	for i := 1; i <= 2; i++ {
+		go func(workerID int) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error().Msgf("Batch: Low-priority worker %d recovered from panic: %v", workerID, r)
+				}
+			}()
+
+			for {
+				select {
+				case <-ctx.Done():
+					log.Info().Msgf("Batch: Context done, exiting low-priority worker %d", workerID)
+					return
+				case accountAddresses, ok := <-lowPriorityChan:
+					if !ok {
+						log.Warn().Msgf("Batch: Low-priority channel closed, worker %d exiting", workerID)
+						return
+					}
+					log.Debug().Msgf("Batch: Low-priority worker %d processing %d addresses", workerID, len(accountAddresses))
+					processAddresses(accountAddresses, ctx, log, client, resultsChan, fetchSlowdown)
+				}
+			}
+		}(i)
+	}
 
 	return nil
 }

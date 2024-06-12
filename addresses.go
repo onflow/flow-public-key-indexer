@@ -169,7 +169,7 @@ func (p *AddressProvider) GetNextAddress() (address flow.Address, isOutOfBounds 
 
 	// Give some progress information every so often
 	if p.currentIndex%(p.lastAddressIndex/10) == 0 {
-		p.log.Info().Msgf("Bulk: Processed %v %% accounts", p.currentIndex/(p.lastAddressIndex/10)*10)
+		p.log.Debug().Msgf("Bulk: Processed %v %% accounts", p.currentIndex/(p.lastAddressIndex/10)*10)
 	}
 
 	if p.currentIndex > p.lastAddressIndex {

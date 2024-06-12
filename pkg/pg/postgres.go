@@ -66,7 +66,7 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 		return nil
 	})
 
-	log.Debug().Msgf("Inserted %v public key accounts", insertedCount)
+	log.Debug().Msgf("DB: Inserted %v public key accounts", insertedCount)
 
 	if err != nil {
 		return err
