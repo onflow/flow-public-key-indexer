@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
 
@@ -42,7 +43,9 @@ func (d *Database) Ping(ctx context.Context) (err error) {
 
 // create table and index in database
 func (d *Database) InitDatabase(purgeOnStart bool) error {
+	log.Info().Msg("Initializing database, creating tables and indexes if they do not exist")
 	createIndex := `CREATE INDEX IF NOT EXISTS public_key_btree_idx ON publickeyindexer USING btree(publicKey)`
+	createAccountIndex := `CREATE INDEX idx_publickeyindexer_account ON publickeyindexer (account);`
 	createTable := `CREATE TABLE IF NOT EXISTS publickeyindexer(
 		publicKey varchar, 
 		account varchar, 
@@ -56,6 +59,7 @@ func (d *Database) InitDatabase(purgeOnStart bool) error {
 		)`
 	insertStatsTable := `INSERT INTO publickeyindexer_stats select 0,0,0 from publickeyindexer_stats having count(*) < 1;`
 	deleteIndex := `DROP INDEX IF EXISTS public_key_btree_idx`
+	deleteAccountIndex := `DROP INDEX IF EXISTS idx_publickeyindexer_account`
 	deleteTable := `DROP TABLE IF EXISTS publickeyindexer`
 	deleteTableStats := `DROP TABLE IF EXISTS publickeyindexer_stats`
 
@@ -64,12 +68,15 @@ func (d *Database) InitDatabase(purgeOnStart bool) error {
 
 	if purgeOnStart {
 		d.DB.Exec(deleteIndex)
+		d.DB.Exec(deleteAccountIndex)
 		d.DB.Exec(deleteTable)
 		d.DB.Exec(deleteTableStats)
 	}
 	d.DB.Exec(createTable)
 
 	d.DB.Exec(createIndex)
+
+	d.DB.Exec(createAccountIndex)
 
 	d.DB.Exec(createStatsTable)
 
