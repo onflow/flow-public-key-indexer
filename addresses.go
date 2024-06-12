@@ -27,6 +27,7 @@ import (
 	"github.com/onflow/flow-go-sdk"
 	"github.com/onflow/flow-go-sdk/client"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 // AddressProvider Is used to get all the addresses that exists at a certain referenceBlockId
@@ -187,8 +188,25 @@ var brokenAddresses = map[flow.Address]struct{}{
 	flow.HexToAddress("b0e80595d267f4eb"): {},
 }
 
-func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Address, batchSize int, batchAddressFilter func([]string) ([]string, error)) {
+func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Address, batchSize int, getExistingAddresses func() ([]string, error)) {
 	var done bool
+	log.Info().Msg("Bulk: Start generating address cache")
+
+	// Fetch existing addresses and handle any errors immediately
+	cache, err := getExistingAddresses()
+	if err != nil {
+		p.log.Error().Err(err).Msg("Bulk: Error getting existing addresses")
+		return
+	}
+
+	// Build a map of existing addresses for fast lookups
+	existingAddresses := make(map[string]struct{})
+	for _, addr := range cache {
+		existingAddresses[addr] = struct{}{}
+	}
+
+	log.Info().Msg("Bulk: Finished generating address cache")
+
 	for {
 		addresses := make([]string, 0)
 
@@ -205,24 +223,26 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 				i--
 				continue
 			}
-			addresses = append(addresses, add0xPrefix(addr.Hex()))
-		}
-		if len(addresses) > 0 {
-			p.log.Info().Msgf("Bulk: Filtering %d addresses", len(addresses))
-			filteredAddresses, err := batchAddressFilter(addresses)
-			if err != nil {
-				p.log.Error().Err(err).Msg("Bulk: Error filtering addresses")
-				return
-			}
-			addrs := make([]flow.Address, 0, len(filteredAddresses))
-			for _, addr := range filteredAddresses {
-				addrs = append(addrs, flow.HexToAddress(addr))
-			}
-			if len(addrs) == 0 {
+
+			a := add0xPrefix(addr.Hex())
+			if _, ok := existingAddresses[a]; ok {
+				i--
 				continue
 			}
-			p.log.Info().Msgf("Bulk: addressChan: Sending %d addresses", len(filteredAddresses))
-			addressChan <- addrs
+			log.Debug().Msgf("Bulk: address not in existing addresses %v", a)
+			addresses = append(addresses, a)
+		}
+
+		if len(addresses) > 0 {
+			addrs := make([]flow.Address, 0, len(addresses))
+			for _, addr := range addresses {
+				addrs = append(addrs, flow.HexToAddress(addr))
+			}
+
+			if len(addrs) > 0 {
+				p.log.Info().Msgf("Bulk: addressChan: Sending %d addresses", len(addresses))
+				addressChan <- addrs
+			}
 		}
 
 		if done {

@@ -100,6 +100,19 @@ func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
 	return nonExistingAddresses, nil
 }
 
+func (s Store) GetUniqueAddresses() ([]string, error) {
+	var addresses []string
+	query := "SELECT DISTINCT account FROM publickeyindexer;"
+	err := s.db.Raw(query).Scan(&addresses).Error
+	if err != nil {
+		log.Debug().Err(err).Msg("Error checking if accounts exist")
+		return nil, err
+	}
+
+	log.Info().Msgf("DB: %d unique addresses", len(addresses))
+	return addresses, nil
+}
+
 func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
 	query := "SELECT uniquePublicKeys FROM publickeyindexer_stats;"
 

@@ -75,8 +75,8 @@ func ProcessAddressChannel(
 	log zerolog.Logger,
 	client *flowclient.Client,
 	addressChan chan []flow.Address,
-	handler func([]model.PublicKeyAccountIndexer) error,
-	filter func([]string) ([]string, error),
+	insertionHandler func([]model.PublicKeyAccountIndexer) error,
+	fetchSlowdown int,
 ) error {
 	if client == nil {
 		return fmt.Errorf("failed to initialize flow client")
@@ -105,7 +105,7 @@ func ProcessAddressChannel(
 						return
 					}
 
-					errHandler := handler(keys)
+					errHandler := insertionHandler(keys)
 					if errHandler != nil {
 						log.Error().Err(errHandler).Msg("Failed to handle keys")
 					}
@@ -127,7 +127,7 @@ func ProcessAddressChannel(
 				}
 
 				// Process the addresses concurrently
-				go processAddresses(accountAddresses, ctx, log, client, resultsChan)
+				go processAddresses(accountAddresses, ctx, log, client, resultsChan, fetchSlowdown)
 			}
 		}
 	}()
@@ -140,7 +140,8 @@ func processAddresses(
 	ctx context.Context,
 	log zerolog.Logger,
 	client *flowclient.Client,
-	resultsChan chan []model.PublicKeyAccountIndexer) {
+	resultsChan chan []model.PublicKeyAccountIndexer,
+	fetchSlowdown int) {
 
 	var keys []model.PublicKeyAccountIndexer
 	var addrs []string
@@ -167,7 +168,7 @@ func processAddresses(
 			continue
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(time.Duration(fetchSlowdown) * time.Millisecond)
 
 		acct, err := client.GetAccount(ctx, addr)
 		if err != nil {

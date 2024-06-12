@@ -101,7 +101,7 @@ func (a *App) Run() {
 	}
 
 	// start up process to handle addresses that are put in addressChan channel
-	ProcessAddressChannel(context.Background(), log.Logger, a.flowClient.Client, addressChan, a.DB.InsertPublicKeyAccounts, a.DB.AddressesNotInDatabase)
+	ProcessAddressChannel(context.Background(), log.Logger, a.flowClient.Client, addressChan, a.DB.InsertPublicKeyAccounts, a.p.FetchSlowDownMs)
 
 	if a.p.EnableSyncData {
 		log.Info().Msgf("Data Sync service is enabled")
@@ -149,7 +149,7 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 		// set start index based on found address last index
 		startIndex = ap.lastAddressIndex
 		log.Debug().Msgf("Bulk: Last address index %d", startIndex)
-		ap.GenerateAddressBatches(addressChan, a.p.BatchSize, a.DB.AddressesNotInDatabase)
+		ap.GenerateAddressBatches(addressChan, a.p.BatchSize, a.DB.GetUniqueAddresses)
 
 		duration := time.Since(start)
 		log.Info().Msgf("Bulk: End Load, duration %f min, %v", duration.Minutes(), currentBlock.Height)
