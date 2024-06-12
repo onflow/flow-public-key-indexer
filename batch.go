@@ -72,7 +72,7 @@ func ProcessAddressChannels(
 	if client == nil {
 		return fmt.Errorf("batch: Failed to initialize flow client")
 	}
-
+	lowPriorityWorkerCount := 2
 	resultsChan := make(chan []model.PublicKeyAccountIndexer)
 
 	// Launch a goroutine to handle results
@@ -121,7 +121,7 @@ func ProcessAddressChannels(
 	}()
 
 	// Low-priority workers
-	for i := 1; i <= 2; i++ {
+	for i := 1; i <= lowPriorityWorkerCount; i++ {
 		go func(workerID int) {
 			defer func() {
 				if r := recover(); r != nil {
@@ -140,6 +140,8 @@ func ProcessAddressChannels(
 						return
 					}
 					log.Debug().Msgf("Batch: Low-priority worker %d processing %d addresses", workerID, len(accountAddresses))
+					// second worker gets longer fetchSlowdown
+					fetchSlowdown = fetchSlowdown * workerID
 					processAddresses(accountAddresses, ctx, log, client, resultsChan, fetchSlowdown)
 				}
 			}

@@ -145,7 +145,7 @@ func (a *App) waitForAddressChanToReduce(addressChan chan []flow.Address, pause 
 	}
 }
 
-func (a *App) bulkLoad(addressChan chan []flow.Address) {
+func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 	ctx := context.Background()
 	startIndex := uint(a.p.SyncDataStartIndex)
 	pause := time.Duration(a.p.FetchSlowDownMs) * time.Millisecond
@@ -166,13 +166,13 @@ func (a *App) bulkLoad(addressChan chan []flow.Address) {
 		// set start index based on found address last index
 		startIndex = ap.lastAddressIndex
 		log.Debug().Msgf("Bulk: Last address index %d", startIndex)
-		ap.GenerateAddressBatches(addressChan, a.p.BatchSize, a.DB.GetUniqueAddresses)
+		ap.GenerateAddressBatches(lowPrioAddressChan, a.p.BatchSize, a.DB.GetUniqueAddresses)
 
 		duration := time.Since(start)
 		log.Info().Msgf("Bulk: End Load, duration %f min, %v", duration.Minutes(), currentBlock.Height)
 
 		// wait for the address channel to reduce before running another bulk load
-		a.waitForAddressChanToReduce(addressChan, pause)
+		a.waitForAddressChanToReduce(lowPrioAddressChan, pause)
 		// Add a delay if needed to prevent it from running too frequently
 		time.Sleep(time.Duration(a.p.SyncDataPolIntervalMin) * time.Minute) // Adjust the sleep duration as needed
 	}
