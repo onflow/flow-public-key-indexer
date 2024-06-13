@@ -202,13 +202,13 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 	// Build a map of existing addresses for fast lookups
 	existingAddresses := make(map[string]struct{})
 	for _, addr := range cache {
-		existingAddresses[addr] = struct{}{}
+		existingAddresses[strip0xPrefix(addr)] = struct{}{}
 	}
 
 	log.Info().Msg("Bulk: Finished generating address cache")
 
 	for {
-		addresses := make([]string, 0)
+		addresses := make([]flow.Address, 0)
 
 		for i := 0; i < batchSize; i++ {
 			addr, oob := p.GetNextAddress()
@@ -224,24 +224,18 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 				continue
 			}
 
-			a := add0xPrefix(addr.Hex())
-			if _, ok := existingAddresses[a]; ok {
+			if _, ok := existingAddresses[addr.Hex()]; ok {
 				i--
 				continue
 			}
-			log.Debug().Msgf("Bulk: address not in existing addresses %v", a)
-			addresses = append(addresses, a)
+			log.Debug().Msgf("Bulk: address not in existing addresses %v", addr.Hex())
+			addresses = append(addresses, addr)
 		}
 
 		if len(addresses) > 0 {
-			addrs := make([]flow.Address, 0, len(addresses))
-			for _, addr := range addresses {
-				addrs = append(addrs, flow.HexToAddress(addr))
-			}
-
-			if len(addrs) > 0 {
+			if len(addresses) > 0 {
 				p.log.Info().Msgf("Bulk: addressChan: Sending %d addresses", len(addresses))
-				addressChan <- addrs
+				addressChan <- addresses
 			}
 		}
 

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	_ "net/http/pprof"
+
 	"github.com/onflow/flow-go-sdk"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
