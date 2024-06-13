@@ -188,12 +188,11 @@ var brokenAddresses = map[flow.Address]struct{}{
 	flow.HexToAddress("b0e80595d267f4eb"): {},
 }
 
-func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Address, batchSize int, getExistingAddresses func() ([]string, error)) {
+func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Address, batchSize int, getExistingAddresses func() (<-chan string, error)) {
 	var done bool
 	log.Info().Msg("Bulk: Start generating address cache")
-
-	// Fetch existing addresses and handle any errors immediately
-	cache, err := getExistingAddresses()
+	// Fetch existing addresses using a channel for streaming
+	addressStream, err := getExistingAddresses()
 	if err != nil {
 		p.log.Error().Err(err).Msg("Bulk: Error getting existing addresses")
 		return
@@ -201,7 +200,7 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 
 	// Build a map of existing addresses for fast lookups
 	existingAddresses := make(map[string]struct{})
-	for _, addr := range cache {
+	for addr := range addressStream {
 		existingAddresses[strip0xPrefix(addr)] = struct{}{}
 	}
 
