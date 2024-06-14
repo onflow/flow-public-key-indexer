@@ -27,7 +27,6 @@ import (
 	"github.com/onflow/flow-go-sdk"
 	"github.com/onflow/flow-go-sdk/client"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 // AddressProvider Is used to get all the addresses that exists at a certain referenceBlockId
@@ -189,8 +188,8 @@ var brokenAddresses = map[flow.Address]struct{}{
 }
 
 func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Address, batchSize int, getExistingAddresses func() (<-chan string, error)) {
-	var done bool
-	log.Info().Msg("Bulk: Start generating address cache")
+	p.log.Info().Msg("Bulk: Start generating address cache")
+
 	// Fetch existing addresses using a channel for streaming
 	addressStream, err := getExistingAddresses()
 	if err != nil {
@@ -204,47 +203,45 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 		existingAddresses[strip0xPrefix(addr)] = struct{}{}
 	}
 
-	log.Info().Msg("Bulk: Finished generating address cache")
+	p.log.Info().Msg("Bulk: Finished generating address cache")
+
+	var allAddresses []flow.Address
 
 	for {
-		addresses := make([]flow.Address, 0)
-
-		for i := 0; i < batchSize; i++ {
-			addr, oob := p.GetNextAddress()
-			if oob {
-				// Out of bounds, there are no more addresses
-				done = true
-				break
-			}
-
-			// Skip address if known broken
-			if _, ok := brokenAddresses[addr]; ok {
-				i--
-				continue
-			}
-
-			if _, ok := existingAddresses[addr.Hex()]; ok {
-				i--
-				continue
-			}
-			log.Debug().Msgf("Bulk: address not in existing addresses %v", addr.Hex())
-			addresses = append(addresses, addr)
-		}
-
-		if len(addresses) > 0 {
-			if len(addresses) > 0 {
-				p.log.Debug().Msgf("Bulk: addressChan: Sending %d addresses", len(addresses))
-				addressChan <- addresses
-			}
-		}
-
-		if done {
+		addr, oob := p.GetNextAddress()
+		if oob {
+			// Out of bounds, there are no more addresses
 			break
 		}
+
+		// Skip address if known broken
+		if _, ok := brokenAddresses[addr]; ok {
+			continue
+		}
+
+		// Skip address if it exists in the cache
+		if _, ok := existingAddresses[addr.Hex()]; ok {
+			continue
+		}
+
+		p.log.Debug().Msgf("Bulk: address not in existing addresses %v", addr.Hex())
+		allAddresses = append(allAddresses, addr)
 	}
+
+	p.log.Info().Msgf("Bulk: Found %d addresses not in database", len(allAddresses))
+	// Process and send addresses in batches
+	for i := 0; i < len(allAddresses); i += batchSize {
+		end := i + batchSize
+		if end > len(allAddresses) {
+			end = len(allAddresses)
+		}
+		batch := allAddresses[i:end]
+		p.log.Debug().Msgf("Bulk: addressChan: Sending %d addresses", len(batch))
+		addressChan <- batch
+	}
+
 	// Explicitly set the map to nil to ensure memory is released
 	existingAddresses = nil
-
 }
 
 func (p *AddressProvider) LastAddress() flow.Address {
