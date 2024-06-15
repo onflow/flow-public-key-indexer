@@ -187,24 +187,7 @@ var brokenAddresses = map[flow.Address]struct{}{
 	flow.HexToAddress("b0e80595d267f4eb"): {},
 }
 
-func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Address, batchSize int, getExistingAddresses func() (<-chan string, error)) {
-	p.log.Info().Msg("Bulk: Start generating address cache")
-
-	// Fetch existing addresses using a channel for streaming
-	addressStream, err := getExistingAddresses()
-	if err != nil {
-		p.log.Error().Err(err).Msg("Bulk: Error getting existing addresses")
-		return
-	}
-
-	// Build a map of existing addresses for fast lookups
-	existingAddresses := make(map[string]struct{})
-	for addr := range addressStream {
-		existingAddresses[strip0xPrefix(addr)] = struct{}{}
-	}
-
-	p.log.Info().Msg("Bulk: Finished generating address cache")
-
+func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Address, batchSize int) {
 	var allAddresses []flow.Address
 
 	for {
@@ -219,16 +202,9 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 			continue
 		}
 
-		// Skip address if it exists in the cache
-		if _, ok := existingAddresses[addr.Hex()]; ok {
-			continue
-		}
-
-		p.log.Debug().Msgf("Bulk: address not in existing addresses %v", addr.Hex())
 		allAddresses = append(allAddresses, addr)
 	}
 
-	p.log.Info().Msgf("Bulk: Found %d addresses not in database", len(allAddresses))
 	// Process and send addresses in batches
 	for i := 0; i < len(allAddresses); i += batchSize {
 		end := i + batchSize
@@ -236,12 +212,8 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 			end = len(allAddresses)
 		}
 		batch := allAddresses[i:end]
-		p.log.Debug().Msgf("Bulk: Channel: Sending %d addresses", len(batch))
 		addressChan <- batch
 	}
-
-	// Explicitly set the map to nil to ensure memory is released
-	existingAddresses = nil
 }
 
 func (p *AddressProvider) LastAddress() flow.Address {

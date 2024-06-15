@@ -168,7 +168,7 @@ func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 		// set start index based on found address last index
 		startIndex = ap.lastAddressIndex
 		log.Debug().Msgf("Bulk: Last address index %d", startIndex)
-		ap.GenerateAddressBatches(lowPrioAddressChan, a.p.BatchSize, a.DB.GetUniqueAddresses)
+		ap.GenerateAddressBatches(lowPrioAddressChan, a.p.BatchSize)
 
 		duration := time.Since(start)
 		log.Info().Msgf("Bulk: End Load, duration %f min, %v", duration.Minutes(), currentBlock.Height)
