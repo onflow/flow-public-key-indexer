@@ -148,13 +148,13 @@ func ProcessAddressChannels(
 						log.Error().Err(err).Msg("Batch: Could not get current block height from default flow client")
 						return
 					}
-					log.Info().Msgf("Batch: Start Script Load, %v, block %d", len(accountAddresses), currentBlock.Height)
+					log.Info().Msgf("Batch: Start Script Load, w(%d) %v, block %d", workerID, len(accountAddresses), currentBlock.Height)
 					accountKeys, err := ProcessAddressWithScript(ctx, config, accountAddresses, log, client, fetchSlowdown, currentBlock.Height)
 					if err != nil {
-						log.Error().Err(err).Msg("Batch: Failed to process addresses with script")
+						log.Error().Err(err).Msgf("Batch: Failed Script Load, w(%d) addresses with script", workerID)
 						return
 					}
-					log.Info().Msgf("Batch: Finished Script Load, %v, block %d", len(accountKeys), currentBlock.Height)
+					log.Info().Msgf("Batch: Finished Script Load, w(%d) %v, block %d", workerID, len(accountKeys), currentBlock.Height)
 					resultsChan <- accountKeys
 				}
 			}

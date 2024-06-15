@@ -128,6 +128,6 @@ func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.Eve
 		allPkAddrs = append(allPkAddrs, addrs...)
 	}
 
-	log.Debug().Msgf("Flow: Total addresses: %d", len(allPkAddrs))
+	log.Debug().Msgf("Flow: Event Found Total addresses: %d", len(allPkAddrs))
 	return allPkAddrs, nil
 }

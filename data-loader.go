@@ -83,7 +83,7 @@ func ProcessAddressWithScript(
 		return nil, err
 	}
 
-	keys, err := getAccountKeys(result, currentBlockHeight)
+	keys, err := getAccountKeys(result)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get account keys")
 	}
@@ -96,22 +96,6 @@ func convertAddresses(addresses []flow.Address) []cadence.Value {
 		accounts = append(accounts, cadence.Address(address))
 	}
 	return accounts
-}
-
-func splitAddr(addresses []flow.Address) [][]flow.Address {
-	limit := int(len(addresses) / 2)
-	var temp2 []flow.Address
-	var temp []flow.Address
-
-	for i := 0; i < len(addresses); i++ {
-		addr := addresses[i]
-		if i < limit {
-			temp = append(temp, addr)
-		} else {
-			temp2 = append(temp2, addr)
-		}
-	}
-	return [][]flow.Address{temp, temp2}
 }
 
 func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, blockHeight uint64, endBlockHeight uint64) (uint64, error) {
@@ -202,6 +186,13 @@ func retryScriptUntilSuccess(
 			time.Sleep(2 * pause)
 			continue
 		}
+		if strings.Contains(err.Error(), "InvalidArgument") {
+			// really slow down when node is ResourceExhausted
+			time.Sleep(3 * pause)
+			block, _ := flowClient.GetLatestBlockHeader(ctx, true)
+			blockHeight = block.Height
+			continue
+		}
 		if strings.Contains(err.Error(), "DeadlineExceeded") {
 			// pass error back to caller, script ran too long
 			break
@@ -211,7 +202,7 @@ func retryScriptUntilSuccess(
 	return result, err, rerun
 }
 
-func getAccountKeys(value cadence.Value, height uint64) ([]model.PublicKeyAccountIndexer, error) {
+func getAccountKeys(value cadence.Value) ([]model.PublicKeyAccountIndexer, error) {
 	allAccountsKeys := []model.PublicKeyAccountIndexer{}
 	for _, allKeys := range value.(cadence.Dictionary).Pairs {
 		address := allKeys.Key.(cadence.Address)
