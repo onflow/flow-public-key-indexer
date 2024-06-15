@@ -67,13 +67,14 @@ func ProcessAddressChannels(
 	highPriorityChan chan []flow.Address,
 	lowPriorityChan chan []flow.Address,
 	insertionHandler func([]model.PublicKeyAccountIndexer) error,
-	fetchSlowdown int,
+	config Params,
 ) error {
 	if client == nil {
 		return fmt.Errorf("batch: Failed to initialize flow client")
 	}
 	lowPriorityWorkerCount := 2
 	resultsChan := make(chan []model.PublicKeyAccountIndexer)
+	fetchSlowdown := config.FetchSlowDownMs
 
 	// Launch a goroutine to handle results
 	go func() {
@@ -142,7 +143,19 @@ func ProcessAddressChannels(
 					log.Debug().Msgf("Batch: Low-priority worker %d processing %d addresses", workerID, len(accountAddresses))
 					// second worker gets longer fetchSlowdown
 					fetchSlowdown = fetchSlowdown * workerID
-					processAddresses(accountAddresses, ctx, log, client, resultsChan, fetchSlowdown)
+					currentBlock, err := client.GetLatestBlockHeader(ctx, true)
+					if err != nil {
+						log.Error().Err(err).Msg("Batch: Could not get current block height from default flow client")
+						return
+					}
+					log.Info().Msgf("Batch: Start Script Load, %v, block %d", len(accountAddresses), currentBlock.Height)
+					accountKeys, err := ProcessAddressWithScript(ctx, config, accountAddresses, log, client, fetchSlowdown, currentBlock.Height)
+					if err != nil {
+						log.Error().Err(err).Msg("Batch: Failed to process addresses with script")
+						return
+					}
+					log.Info().Msgf("Batch: Finished Script Load, %v, block %d", len(accountKeys), currentBlock.Height)
+					resultsChan <- accountKeys
 				}
 			}
 		}(i)

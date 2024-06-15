@@ -236,7 +236,7 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 			end = len(allAddresses)
 		}
 		batch := allAddresses[i:end]
-		p.log.Debug().Msgf("Bulk: addressChan: Sending %d addresses", len(batch))
+		p.log.Debug().Msgf("Bulk: Channel: Sending %d addresses", len(batch))
 		addressChan <- batch
 	}
 

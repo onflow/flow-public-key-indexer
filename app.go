@@ -106,7 +106,7 @@ func (a *App) Run() {
 	// start up process to handle addresses that are put in addressChan channel
 	ProcessAddressChannels(context.Background(), log.Logger, a.flowClient.Client,
 		addressChan, lowPriAddressChan,
-		a.DB.InsertPublicKeyAccounts, a.p.FetchSlowDownMs)
+		a.DB.InsertPublicKeyAccounts, a.p)
 
 	if a.p.EnableSyncData {
 		log.Info().Msgf("Data Sync service is enabled")

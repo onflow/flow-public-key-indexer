@@ -19,12 +19,31 @@
 package main
 
 import (
+	"context"
 	_ "embed"
+	"example/flow-key-indexer/model"
 	"example/flow-key-indexer/pkg/pg"
+	"math/big"
+	"strings"
+	"time"
 
+	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
+	flowclient "github.com/onflow/flow-go-sdk/client"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc"
 )
+
+type PublicKey struct {
+	hashAlgorithm      uint8
+	isRevoked          bool
+	weight             uint64
+	keyIndex           *big.Int
+	publicKey          string
+	signatureAlgorithm uint8
+	account            string
+}
 
 type DataLoader struct {
 	DB             pg.Store
@@ -40,6 +59,59 @@ func NewDataLoader(DB pg.Store, fa FlowAdapter, p Params) *DataLoader {
 	s.fa = fa
 	s.config = p
 	return &s
+}
+
+//go:embed cadence/get_keys.cdc
+var GetAccountKeys string
+
+func ProcessAddressWithScript(
+	ctx context.Context,
+	conf Params,
+	addresses []flow.Address,
+	log zerolog.Logger,
+	flowClient *flowclient.Client,
+	fetchSlowDown int,
+	currentBlockHeight uint64,
+) ([]model.PublicKeyAccountIndexer, error) {
+	script := []byte(GetAccountKeys)
+	accountsCadenceValues := convertAddresses(addresses)
+	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.MaxAcctKeys), cadence.NewBool(conf.IgnoreZeroWeight), cadence.NewBool(conf.IgnoreRevoked)}
+	result, err, _ := retryScriptUntilSuccess(ctx, log, currentBlockHeight, script, arguments, flowClient, time.Duration(fetchSlowDown)*time.Millisecond)
+
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get account keys")
+		return nil, err
+	}
+
+	keys, err := getAccountKeys(result, currentBlockHeight)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get account keys")
+	}
+	return keys, err
+}
+
+func convertAddresses(addresses []flow.Address) []cadence.Value {
+	var accounts []cadence.Value
+	for _, address := range addresses {
+		accounts = append(accounts, cadence.Address(address))
+	}
+	return accounts
+}
+
+func splitAddr(addresses []flow.Address) [][]flow.Address {
+	limit := int(len(addresses) / 2)
+	var temp2 []flow.Address
+	var temp []flow.Address
+
+	for i := 0; i < len(addresses); i++ {
+		addr := addresses[i]
+		if i < limit {
+			temp = append(temp, addr)
+		} else {
+			temp2 = append(temp2, addr)
+		}
+	}
+	return [][]flow.Address{temp, temp2}
 }
 
 func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, blockHeight uint64, endBlockHeight uint64) (uint64, error) {
@@ -58,11 +130,11 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, bloc
 
 	if len(addresses) > 0 {
 		addrs := unique(addresses)
-		log.Debug().Msgf("addressChan: Before adding to channel, %d addresses, at %v", len(addresses), synchedBlockHeight)
+		log.Debug().Msgf("Inc: addressChan: Before adding to channel, %d addresses, at %v", len(addresses), synchedBlockHeight)
 
 		addressChan <- addrs
 
-		log.Debug().Msgf("addressChan: After found %d addresses, at %v", len(addresses), synchedBlockHeight)
+		log.Debug().Msgf("Inc: addressChan: After found %d addresses, at %v", len(addresses), synchedBlockHeight)
 	}
 
 	return synchedBlockHeight, err
@@ -78,4 +150,95 @@ func unique(addresses []flow.Address) []flow.Address {
 		}
 	}
 	return list
+}
+
+// retries running the cadence script until we get a successful response back,
+// returning an array of balance pairs, along with a boolean representing whether we can continue
+// or are finished processing.
+func retryScriptUntilSuccess(
+	ctx context.Context,
+	log zerolog.Logger,
+	blockHeight uint64,
+	script []byte,
+	arguments []cadence.Value,
+	flowClient *flowclient.Client,
+	pause time.Duration,
+) (cadence.Value, error, bool) {
+	var err error
+	var result cadence.Value
+	rerun := true
+	attempts := 0
+	maxAttemps := 5
+	last := time.Now()
+
+	for {
+		if time.Since(last) < pause {
+			time.Sleep(pause)
+		}
+		last = time.Now()
+
+		result, err = flowClient.ExecuteScriptAtBlockHeight(
+			ctx,
+			blockHeight,
+			script,
+			arguments,
+			grpc.MaxCallRecvMsgSize(16*1024*1024),
+		)
+		if err == nil {
+			rerun = false
+			break
+		}
+		attempts = attempts + 1
+		if err != nil {
+			log.Error().Err(err).Msgf("%d attempt", attempts)
+		}
+		if attempts > maxAttemps || strings.Contains(err.Error(), "connection termination") {
+			// give up and don't retry
+			rerun = false
+			break
+		}
+		if strings.Contains(err.Error(), "ResourceExhausted") {
+			// really slow down when node is ResourceExhausted
+			time.Sleep(2 * pause)
+			continue
+		}
+		if strings.Contains(err.Error(), "DeadlineExceeded") {
+			// pass error back to caller, script ran too long
+			break
+		}
+	}
+
+	return result, err, rerun
+}
+
+func getAccountKeys(value cadence.Value, height uint64) ([]model.PublicKeyAccountIndexer, error) {
+	allAccountsKeys := []model.PublicKeyAccountIndexer{}
+	for _, allKeys := range value.(cadence.Dictionary).Pairs {
+		address := allKeys.Key.(cadence.Address)
+		counter := 0
+		keys := []model.PublicKeyAccountIndexer{}
+		for _, nameCodePair := range allKeys.Value.(cadence.Dictionary).Pairs {
+			rawStruct := nameCodePair.Value.(cadence.Struct)
+			data := PublicKey{
+				hashAlgorithm:      rawStruct.Fields[0].ToGoValue().(uint8),
+				isRevoked:          rawStruct.Fields[1].ToGoValue().(bool),
+				weight:             rawStruct.Fields[2].ToGoValue().(uint64),
+				publicKey:          rawStruct.Fields[3].ToGoValue().(string),
+				keyIndex:           rawStruct.Fields[4].ToGoValue().(*big.Int),
+				signatureAlgorithm: rawStruct.Fields[5].ToGoValue().(uint8),
+				account:            address.String(),
+			}
+			item := model.PublicKeyAccountIndexer{
+				Account:   data.account,
+				KeyId:     int(data.keyIndex.Int64()),
+				PublicKey: data.publicKey,
+				Weight:    int(data.weight / 100000000),
+			}
+			keys = append(keys, item)
+			counter = counter + 1
+		}
+		allAccountsKeys = append(allAccountsKeys, keys...)
+	}
+
+	return allAccountsKeys, nil
 }
