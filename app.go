@@ -79,6 +79,7 @@ func (a *App) Initialize(params Params) {
 
 func (a *App) Run() {
 	bufferSize := 100
+	ctx := context.Background()
 	addressChan := make(chan []flow.Address, bufferSize)
 	lowPriAddressChan := make(chan []flow.Address, bufferSize)
 	currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(context.Background(), true)
@@ -104,7 +105,7 @@ func (a *App) Run() {
 	}
 
 	// start up process to handle addresses that are put in addressChan channel
-	ProcessAddressChannels(context.Background(), log.Logger, a.flowClient.Client,
+	ProcessAddressChannels(ctx, log.Logger, a.flowClient.Client,
 		addressChan, lowPriAddressChan,
 		a.DB.InsertPublicKeyAccounts, a.p)
 
@@ -117,7 +118,7 @@ func (a *App) Run() {
 		log.Info().Msgf("Incremental service is enabled")
 		go a.loadIncrementalData(addressChan)
 	}
-
+	go a.waitForChannelsToUpdateDistinct(ctx, addressChan, lowPriAddressChan, time.Duration(a.p.SyncDataPolIntervalMin)*time.Minute, a.DB.UpdateDistinctCount)
 	a.rest.Start()
 }
 
@@ -143,6 +144,27 @@ func (a *App) waitForAddressChanToReduce(addressChan chan []flow.Address, pause 
 		if len(addressChan) < 10 {
 			log.Debug().Msg("Address channel has cleared enough, run another bulk loader")
 			return
+		}
+	}
+}
+
+func (a *App) waitForChannelsToUpdateDistinct(ctx context.Context, highChan chan []flow.Address, lowChan chan []flow.Address, pause time.Duration, updateDistinctCount func()) {
+	ticker := time.NewTicker(pause)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Debug().Msg("Service is stopping, exiting waitForChannelsToUpdateDistinct")
+			return
+		case <-ticker.C:
+			log.Debug().Msgf("High-priority channel size %d", len(highChan))
+			log.Debug().Msgf("Low-priority channel size %d", len(lowChan))
+
+			if len(highChan) < 10 && len(lowChan) < 10 {
+				log.Debug().Msg("Both channels have cleared enough, run another bulk loader")
+				updateDistinctCount()
+			}
 		}
 	}
 }

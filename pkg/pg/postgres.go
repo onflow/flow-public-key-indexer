@@ -72,9 +72,6 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 		return err
 	}
 
-	// update the distinct count in a non-blocking way
-	go s.UpdateDistinctCount()
-
 	return nil
 }
 
