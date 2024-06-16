@@ -258,7 +258,7 @@ func processAddresses(
 		log.Error().Err(err).Msgf("Batch API Failed save keys, %v sending to DB channel instead", len(keys))
 		resultsChan <- keys
 	} else {
-		log.Info().Msgf("Batch API Saved %v keys", len(keys))
+		log.Info().Msgf("Batch API Saved %v keys of %v addresses", len(keys), len(accountAddresses))
 	}
 
 }
