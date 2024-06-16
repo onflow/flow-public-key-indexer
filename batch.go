@@ -125,7 +125,7 @@ func ProcessAddressChannels(
 				}
 				// Create a new goroutine to process each high-priority address array
 				log.Debug().Msgf("Batch High-priority worker processing %d addresses", len(accountAddresses))
-				go processAddresses(accountAddresses, ctx, log, client, resultsChan, fetchSlowdown)
+				go processAddresses(accountAddresses, ctx, log, client, resultsChan, fetchSlowdown, insertionHandler)
 			}
 		}
 	}()
@@ -167,8 +167,10 @@ func ProcessAddressChannels(
 						return
 					}
 					duration := time.Since(start)
-					log.Info().Msgf("Batch Bulk Finished Script Load, d(%f)sec w(%d) %v, block %d, q(%d)", duration.Seconds(), workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
-					resultsChan <- accountKeys
+					log.Info().Msgf("Batch Bulk Finished Script Load, duration(%f) w(%d) %v, block %d, q(%d)", duration.Seconds(), workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
+					if len(accountKeys) > 0 {
+						resultsChan <- accountKeys
+					}
 				}
 			}
 		}(i)
@@ -183,29 +185,18 @@ func processAddresses(
 	log zerolog.Logger,
 	client *flowclient.Client,
 	resultsChan chan []model.PublicKeyAccountIndexer,
-	fetchSlowdown int) {
+	fetchSlowdown int, insertHandler func(context.Context, []model.PublicKeyAccountIndexer) error) {
 
 	var keys []model.PublicKeyAccountIndexer
-	var addrs []string
-	// Convert flow.Address to string
-	for _, addr := range accountAddresses {
-		addrs = append(addrs, add0xPrefix(addr.String()))
-	}
 
-	if len(addrs) == 0 {
+	if len(accountAddresses) == 0 {
 		return
 	}
 
-	// Convert filtered addresses back to flow.Address
-	var validAddresses []flow.Address
-	for _, addr := range addrs {
-		validAddresses = append(validAddresses, flow.HexToAddress(addr))
-	}
+	log.Info().Msgf("Batch API Processing addresses: %v", len(accountAddresses))
 
-	log.Info().Msgf("Batch API Processing addresses: %v", len(validAddresses))
-
-	for _, addr := range validAddresses {
-		addrStr := addr.String()
+	for _, addr := range accountAddresses {
+		addrStr := add0xPrefix(addr.String())
 		if _, ok := ignoreAccounts[addrStr]; ok {
 			continue
 		}
@@ -251,6 +242,12 @@ func processAddresses(
 	}
 
 	// Send the keys to the results channel
-	resultsChan <- keys
+	err := insertHandler(ctx, keys)
+	if err != nil {
+		log.Error().Err(err).Msgf("Batch API Failed save keys, %v sending to DB channel instead", len(keys))
+		resultsChan <- keys
+	} else {
+		log.Info().Msgf("Batch API Saved %v keys", len(keys))
+	}
 
 }
