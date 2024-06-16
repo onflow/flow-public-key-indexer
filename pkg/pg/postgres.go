@@ -46,25 +46,23 @@ func (s Store) Stats() model.PublicKeyStatus {
 	}
 }
 
-func (s Store) BatchInsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) error {
+func (s Store) BatchInsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) (int64, error) {
 	batchSize := len(publicKeys)
-	err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		DoNothing: true,
-	}).CreateInBatches(publicKeys, batchSize).Error
-	if err != nil {
-		return err
+	}).CreateInBatches(publicKeys, batchSize)
+	if result.Error != nil {
+		return 0, result.Error
 	}
-	return nil
+	return result.RowsAffected, nil
 }
 
 func (s Store) InsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) error {
-	insertedCount := 0
-
 	if len(publicKeys) == 0 {
 		return nil
 	}
 
-	err := s.BatchInsertPublicKeyAccounts(ctx, publicKeys)
+	insertedCount, err := s.BatchInsertPublicKeyAccounts(ctx, publicKeys)
 
 	log.Info().Msgf("DB Inserted %v of %v public key accounts", insertedCount, len(publicKeys))
 
