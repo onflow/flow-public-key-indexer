@@ -208,17 +208,17 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 	currentHeight, errCurr := a.flowClient.GetCurrentBlockHeight()
 	blockRange := currentHeight - loadedBlkHeight
 	if errCurr != nil {
-		log.Error().Err(errCurr).Msg("Inc: could not get current block height")
+		log.Error().Err(errCurr).Msg("Inc could not get current block height")
 		return
 	}
 
-	log.Info().Msgf("Inc: Start Load, from %d, to: %d, to load %d", loadedBlkHeight, currentHeight, blockRange)
+	log.Info().Msgf("Inc Start Load, from %d, to: %d, to load %d", loadedBlkHeight, currentHeight, blockRange)
 
 	var synchToBlockHeight uint64
 	var err error
 	synchToBlockHeight, err = a.dataLoader.RunIncAddressesLoader(addressChan, loadedBlkHeight, currentHeight)
 	if err != nil {
-		log.Error().Err(err).Msg("Inc: could not load incremental public keys, will retry if falling behind ")
+		log.Error().Err(err).Msg("Inc could not load incremental public keys, will retry if falling behind ")
 	}
 	duration := time.Since(start)
 
@@ -226,14 +226,14 @@ func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 		a.DB.UpdateLoadedBlockHeight(synchToBlockHeight)
 	}
 
-	log.Info().Msgf("Inc: Finish Load, %f sec, from: %d to: %d, loaded %d", duration.Seconds(), loadedBlkHeight, synchToBlockHeight, synchToBlockHeight-loadedBlkHeight)
+	log.Info().Msgf("Inc Finish Load, %f sec, from: %d to: %d, loaded %d", duration.Seconds(), loadedBlkHeight, synchToBlockHeight, synchToBlockHeight-loadedBlkHeight)
 
 	currentBlockHeight, _ := a.flowClient.GetCurrentBlockHeight()
 	// check if processing events took too long to wait for another interval and run an extra incremental load
 	newBlockRange := currentBlockHeight - synchToBlockHeight
 	if newBlockRange > uint64(a.p.WaitNumBlocks) {
 		refreshBlock := currentBlockHeight - uint64(a.p.MaxBlockRange)
-		log.Warn().Msgf("Inc: load is lagging, running incremental at %d, %d blocks", refreshBlock, newBlockRange)
+		log.Warn().Msgf("Inc load is lagging, running incremental at %d, %d blocks", refreshBlock, newBlockRange)
 		synchToBlockHeight, _ = a.dataLoader.RunIncAddressesLoader(addressChan, refreshBlock, currentBlockHeight)
 		a.DB.UpdateLoadedBlockHeight(synchToBlockHeight)
 	}

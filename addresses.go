@@ -205,6 +205,11 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 		allAddresses = append(allAddresses, addr)
 	}
 
+	// Reverse the order of allAddresses
+	for i, j := 0, len(allAddresses)-1; i < j; i, j = i+1, j-1 {
+		allAddresses[i], allAddresses[j] = allAddresses[j], allAddresses[i]
+	}
+
 	// Process and send addresses in batches
 	for i := 0; i < len(allAddresses); i += batchSize {
 		end := i + batchSize

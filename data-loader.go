@@ -114,11 +114,11 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, bloc
 
 	if len(addresses) > 0 {
 		addrs := unique(addresses)
-		log.Debug().Msgf("Inc: addressChan: Before adding to channel, %d addresses, at %v", len(addresses), synchedBlockHeight)
+		log.Debug().Msgf("Inc addressChan: Before adding to channel, %d addresses, at %v", len(addresses), synchedBlockHeight)
 
 		addressChan <- addrs
 
-		log.Debug().Msgf("Inc: addressChan: After found %d addresses, at %v", len(addresses), synchedBlockHeight)
+		log.Debug().Msgf("Inc addressChan: After found %d addresses, at %v", len(addresses), synchedBlockHeight)
 	}
 
 	return synchedBlockHeight, err

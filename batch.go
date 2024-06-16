@@ -190,7 +190,7 @@ func processAddresses(
 		validAddresses = append(validAddresses, flow.HexToAddress(addr))
 	}
 
-	log.Info().Msgf("Batch Processing addresses: %v", len(validAddresses))
+	log.Info().Msgf("Batch API Processing addresses: %v", len(validAddresses))
 
 	for _, addr := range validAddresses {
 		addrStr := addr.String()
