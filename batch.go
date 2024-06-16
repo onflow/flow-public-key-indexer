@@ -89,6 +89,11 @@ func ProcessAddressChannels(
 					log.Info().Msg("Batch Results channel closed, exiting result handler")
 					return
 				}
+
+				if len(keys) == 0 {
+					continue
+				}
+
 				start := time.Now()
 				errHandler := insertionHandler(ctx, keys)
 				duration := time.Since(start)
