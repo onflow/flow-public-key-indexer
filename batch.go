@@ -144,6 +144,9 @@ func ProcessAddressChannels(
 						log.Warn().Msgf("Batch Bulk Low-priority channel closed, worker %d exiting", workerID)
 						return
 					}
+					if len(accountAddresses) == 0 {
+						continue
+					}
 					start := time.Now()
 					log.Debug().Msgf("Batch Bulk worker %d processing %d addresses, q(%d)", workerID, len(accountAddresses), len(lowPriorityChan))
 					// second worker gets longer fetchSlowdown

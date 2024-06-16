@@ -60,6 +60,10 @@ func (s Store) BatchInsertPublicKeyAccounts(ctx context.Context, publicKeys []mo
 func (s Store) InsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) error {
 	insertedCount := 0
 
+	if len(publicKeys) == 0 {
+		return nil
+	}
+
 	err := s.BatchInsertPublicKeyAccounts(ctx, publicKeys)
 
 	log.Info().Msgf("DB Inserted %v of %v public key accounts", insertedCount, len(publicKeys))
