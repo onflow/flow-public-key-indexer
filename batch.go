@@ -90,6 +90,7 @@ func ProcessAddressChannels(
 					return
 				}
 				errHandler := insertionHandler(ctx, keys)
+				log.Info().Msgf("Batch DB q(%v) to be stored", len(resultsChan))
 				if errHandler != nil {
 					log.Error().Err(errHandler).Msg("Batch Failed to handle keys")
 				}
@@ -141,6 +142,7 @@ func ProcessAddressChannels(
 						log.Warn().Msgf("Batch Bulk Low-priority channel closed, worker %d exiting", workerID)
 						return
 					}
+					start := time.Now()
 					log.Debug().Msgf("Batch Bulk worker %d processing %d addresses, q(%d)", workerID, len(accountAddresses), len(lowPriorityChan))
 					// second worker gets longer fetchSlowdown
 					fetchSlowdown = fetchSlowdown * workerID
@@ -149,13 +151,13 @@ func ProcessAddressChannels(
 						log.Error().Err(err).Msg("Batch Bulk Could not get current block height from default flow client")
 						return
 					}
-					log.Info().Msgf("Batch Bulk Start Script Load, w(%d) %v, block %d, q(%d)", workerID, len(accountAddresses), currentBlock.Height, len(lowPriorityChan))
 					accountKeys, err := ProcessAddressWithScript(ctx, config, accountAddresses, log, client, fetchSlowdown, currentBlock.Height)
 					if err != nil {
 						log.Error().Err(err).Msgf("Batch Bulk Failed Script Load, w(%d) addresses with script", workerID)
 						return
 					}
-					log.Info().Msgf("Batch Bulk Finished Script Load, w(%d) %v, block %d, q(%d)", workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
+					duration := time.Since(start)
+					log.Info().Msgf("Batch Bulk Finished Script Load, duration(%f) w(%d) %v, block %d, q(%d)", duration.Seconds(), workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
 					resultsChan <- accountKeys
 				}
 			}
