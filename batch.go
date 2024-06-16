@@ -140,7 +140,7 @@ func ProcessAddressChannels(
 						log.Warn().Msgf("Batch: Low-priority channel closed, worker %d exiting", workerID)
 						return
 					}
-					log.Debug().Msgf("Batch: Low-priority worker %d processing %d addresses", workerID, len(accountAddresses))
+					log.Debug().Msgf("Batch: Low-priority worker %d processing %d addresses, q(%d)", workerID, len(accountAddresses), len(lowPriorityChan))
 					// second worker gets longer fetchSlowdown
 					fetchSlowdown = fetchSlowdown * workerID
 					currentBlock, err := client.GetLatestBlockHeader(ctx, true)
@@ -148,13 +148,13 @@ func ProcessAddressChannels(
 						log.Error().Err(err).Msg("Batch: Could not get current block height from default flow client")
 						return
 					}
-					log.Info().Msgf("Batch: Start Script Load, w(%d) %v, block %d", workerID, len(accountAddresses), currentBlock.Height)
+					log.Info().Msgf("Batch: Start Script Load, w(%d) %v, block %d, q(%d)", workerID, len(accountAddresses), currentBlock.Height, len(lowPriorityChan))
 					accountKeys, err := ProcessAddressWithScript(ctx, config, accountAddresses, log, client, fetchSlowdown, currentBlock.Height)
 					if err != nil {
 						log.Error().Err(err).Msgf("Batch: Failed Script Load, w(%d) addresses with script", workerID)
 						return
 					}
-					log.Info().Msgf("Batch: Finished Script Load, w(%d) %v, block %d", workerID, len(accountKeys), currentBlock.Height)
+					log.Info().Msgf("Batch: Finished Script Load, w(%d) %v, block %d, q(%d)", workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
 					resultsChan <- accountKeys
 				}
 			}

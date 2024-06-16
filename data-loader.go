@@ -76,16 +76,16 @@ func ProcessAddressWithScript(
 	script := []byte(GetAccountKeys)
 	accountsCadenceValues := convertAddresses(addresses)
 	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.MaxAcctKeys), cadence.NewBool(conf.IgnoreZeroWeight), cadence.NewBool(conf.IgnoreRevoked)}
-	result, err, _ := retryScriptUntilSuccess(ctx, log, currentBlockHeight, script, arguments, flowClient, time.Duration(fetchSlowDown)*time.Millisecond)
+	result, err := retryScriptUntilSuccess(ctx, log, currentBlockHeight, script, arguments, flowClient, time.Duration(fetchSlowDown)*time.Millisecond)
 
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to get account keys")
+		log.Error().Err(err).Msg("Script: Failed to get account keys")
 		return nil, err
 	}
 
 	keys, err := getAccountKeys(result)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to get account keys")
+		log.Error().Err(err).Msg("Script: Failed to get account keys")
 	}
 	return keys, err
 }
@@ -137,7 +137,7 @@ func unique(addresses []flow.Address) []flow.Address {
 }
 
 // retries running the cadence script until we get a successful response back,
-// returning an array of balance pairs, along with a boolean representing whether we can continue
+// returning an array, along with a boolean representing whether we can continue
 // or are finished processing.
 func retryScriptUntilSuccess(
 	ctx context.Context,
@@ -147,20 +147,13 @@ func retryScriptUntilSuccess(
 	arguments []cadence.Value,
 	flowClient *flowclient.Client,
 	pause time.Duration,
-) (cadence.Value, error, bool) {
+) (cadence.Value, error) {
 	var err error
 	var result cadence.Value
-	rerun := true
 	attempts := 0
 	maxAttemps := 5
-	last := time.Now()
 
 	for {
-		if time.Since(last) < pause {
-			time.Sleep(pause)
-		}
-		last = time.Now()
-
 		result, err = flowClient.ExecuteScriptAtBlockHeight(
 			ctx,
 			blockHeight,
@@ -169,28 +162,26 @@ func retryScriptUntilSuccess(
 			grpc.MaxCallRecvMsgSize(16*1024*1024),
 		)
 		if err == nil {
-			rerun = false
 			break
 		}
 		attempts = attempts + 1
-		if err != nil {
-			log.Error().Err(err).Msgf("%d attempt", attempts)
-		}
+		log.Error().Err(err).Msgf("Script: %d attempt", attempts)
+
 		if attempts > maxAttemps || strings.Contains(err.Error(), "connection termination") {
 			// give up and don't retry
-			rerun = false
 			break
 		}
+
+		time.Sleep(pause)
+		block, _ := flowClient.GetLatestBlockHeader(ctx, true)
+		blockHeight = block.Height
+
 		if strings.Contains(err.Error(), "ResourceExhausted") {
 			// really slow down when node is ResourceExhausted
-			time.Sleep(2 * pause)
 			continue
 		}
 		if strings.Contains(err.Error(), "InvalidArgument") {
 			// really slow down when node is ResourceExhausted
-			time.Sleep(3 * pause)
-			block, _ := flowClient.GetLatestBlockHeader(ctx, true)
-			blockHeight = block.Height
 			continue
 		}
 		if strings.Contains(err.Error(), "DeadlineExceeded") {
@@ -199,7 +190,7 @@ func retryScriptUntilSuccess(
 		}
 	}
 
-	return result, err, rerun
+	return result, err
 }
 
 func getAccountKeys(value cadence.Value) ([]model.PublicKeyAccountIndexer, error) {

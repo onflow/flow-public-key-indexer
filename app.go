@@ -80,7 +80,7 @@ func (a *App) Initialize(params Params) {
 func (a *App) Run() {
 	bufferSize := 100
 	ctx := context.Background()
-	addressChan := make(chan []flow.Address, bufferSize)
+	highPriChan := make(chan []flow.Address)
 	lowPriAddressChan := make(chan []flow.Address, bufferSize)
 	currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(context.Background(), true)
 
@@ -106,7 +106,7 @@ func (a *App) Run() {
 
 	// start up process to handle addresses that are put in addressChan channel
 	ProcessAddressChannels(ctx, log.Logger, a.flowClient.Client,
-		addressChan, lowPriAddressChan,
+		highPriChan, lowPriAddressChan,
 		a.DB.InsertPublicKeyAccounts, a.p)
 
 	if a.p.EnableSyncData {
@@ -116,9 +116,9 @@ func (a *App) Run() {
 
 	if a.p.EnableIncremental {
 		log.Info().Msgf("Incremental service is enabled")
-		go a.loadIncrementalData(addressChan)
+		go a.loadIncrementalData(highPriChan)
 	}
-	go a.waitForChannelsToUpdateDistinct(ctx, addressChan, lowPriAddressChan, time.Duration(a.p.SyncDataPolIntervalMin)*time.Minute, a.DB.UpdateDistinctCount)
+	go a.waitForChannelsToUpdateDistinct(ctx, highPriChan, lowPriAddressChan, time.Duration(a.p.SyncDataPolIntervalMin)*time.Minute, a.DB.UpdateDistinctCount)
 	a.rest.Start()
 }
 
