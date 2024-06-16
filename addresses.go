@@ -27,6 +27,7 @@ import (
 	"github.com/onflow/flow-go-sdk"
 	"github.com/onflow/flow-go-sdk/client"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 // AddressProvider Is used to get all the addresses that exists at a certain referenceBlockId
@@ -210,6 +211,7 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 		allAddresses[i], allAddresses[j] = allAddresses[j], allAddresses[i]
 	}
 
+	log.Info().Msgf("Bulk Found %v addresses, batches %d", len(allAddresses), len(allAddresses)/batchSize)
 	// Process and send addresses in batches
 	for i := 0; i < len(allAddresses); i += batchSize {
 		end := i + batchSize
@@ -217,6 +219,10 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 			end = len(allAddresses)
 		}
 		batch := allAddresses[i:end]
+		if len(batch) == 0 {
+			log.Warn().Msgf("Batch is empty, end %d", end)
+			continue
+		}
 		addressChan <- batch
 	}
 }
