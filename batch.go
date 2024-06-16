@@ -99,7 +99,18 @@ func ProcessAddressChannels(
 				duration := time.Since(start)
 				log.Info().Msgf("Batch DB d(%f) q(%v) to be stored", duration.Seconds(), len(resultsChan))
 				if errHandler != nil {
-					log.Error().Err(errHandler).Msg("Batch Failed to handle keys")
+					log.Error().Err(errHandler).Msgf("Batch Failed to handle keys, %v, break up into smaller chunks", len(keys))
+					// break up batch into smaller chunks
+					for i := 0; i < len(keys); i += config.BatchSize {
+						end := i + config.BatchSize
+						if end > len(keys) {
+							end = len(keys)
+						}
+						errHandler = insertionHandler(ctx, keys[i:end])
+						if errHandler != nil {
+							log.Error().Err(errHandler).Msg("Batch Failed to handle keys")
+						}
+					}
 				}
 			}
 		}
