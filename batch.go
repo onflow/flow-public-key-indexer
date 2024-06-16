@@ -89,8 +89,10 @@ func ProcessAddressChannels(
 					log.Info().Msg("Batch Results channel closed, exiting result handler")
 					return
 				}
+				start := time.Now()
 				errHandler := insertionHandler(ctx, keys)
-				log.Info().Msgf("Batch DB q(%v) to be stored", len(resultsChan))
+				duration := time.Since(start)
+				log.Info().Msgf("Batch DB d(%f) q(%v) to be stored", duration.Seconds(), len(resultsChan))
 				if errHandler != nil {
 					log.Error().Err(errHandler).Msg("Batch Failed to handle keys")
 				}
@@ -157,7 +159,7 @@ func ProcessAddressChannels(
 						return
 					}
 					duration := time.Since(start)
-					log.Info().Msgf("Batch Bulk Finished Script Load, duration(%f) w(%d) %v, block %d, q(%d)", duration.Seconds(), workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
+					log.Info().Msgf("Batch Bulk Finished Script Load, d(%f)sec w(%d) %v, block %d, q(%d)", duration.Seconds(), workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
 					resultsChan <- accountKeys
 				}
 			}

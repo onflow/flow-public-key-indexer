@@ -45,7 +45,7 @@ func (d *Database) Ping(ctx context.Context) (err error) {
 func (d *Database) InitDatabase(purgeOnStart bool) error {
 	log.Info().Msg("Initializing database, creating tables and indexes if they do not exist")
 	createIndex := `CREATE INDEX IF NOT EXISTS public_key_btree_idx ON publickeyindexer USING btree(publicKey)`
-	createAccountIndex := `CREATE INDEX idx_publickeyindexer_account ON publickeyindexer (account);`
+	createAccountIndex := `CREATE INDEX IF NOT EXISTS idx_publickeyindexer_account ON publickeyindexer (account);`
 	createTable := `CREATE TABLE IF NOT EXISTS publickeyindexer(
 		publicKey varchar, 
 		account varchar, 
