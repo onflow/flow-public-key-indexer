@@ -64,7 +64,9 @@ func (s Store) InsertPublicKeyAccounts(ctx context.Context, publicKeys []model.P
 
 	insertedCount, err := s.BatchInsertPublicKeyAccounts(ctx, publicKeys)
 
-	log.Info().Msgf("DB Inserted %v of %v public key accounts", insertedCount, len(publicKeys))
+	if insertedCount > 0 {
+		log.Info().Msgf("DB Inserted %v of %v public key accounts", insertedCount, len(publicKeys))
+	}
 
 	if err != nil {
 		log.Error().Err(err).Msg("Transaction failed")
