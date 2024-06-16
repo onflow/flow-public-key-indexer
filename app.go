@@ -178,10 +178,10 @@ func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 		start := time.Now()
 		currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(ctx, true)
 		if err != nil {
-			log.Error().Err(err).Msg("Bulk: Could not get current block height from default flow client")
+			log.Error().Err(err).Msg("Bulk Could not get current block height from default flow client")
 		}
 
-		log.Info().Msgf("Bulk: Start Load, %v", currentBlock.Height)
+		log.Info().Msgf("Bulk Start Load, %v", currentBlock.Height)
 
 		ap, errLoad := InitAddressProvider(ctx, log.Logger, flow.ChainID(a.p.ChainId), currentBlock.ID, a.flowClient.Client, pause, startIndex)
 		if errLoad != nil {
@@ -189,11 +189,11 @@ func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 		}
 		// set start index based on found address last index
 		startIndex = ap.lastAddressIndex
-		log.Debug().Msgf("Bulk: Last address index %d", startIndex)
+		log.Debug().Msgf("Bulk Last address index %d", startIndex)
 		ap.GenerateAddressBatches(lowPrioAddressChan, a.p.BatchSize)
 
 		duration := time.Since(start)
-		log.Info().Msgf("Bulk: End Load, duration %f min, %v", duration.Minutes(), currentBlock.Height)
+		log.Info().Msgf("Bulk End Load, duration %f min, %v", duration.Minutes(), currentBlock.Height)
 
 		// wait for the address channel to reduce before running another bulk load
 		a.waitForAddressChanToReduce(lowPrioAddressChan, pause)

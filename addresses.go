@@ -72,7 +72,7 @@ func InitAddressProvider(
 		searchStep += 1
 		address := ap.indexToAddress(index)
 
-		log.Debug().Str("Bulk: address", address.Hex()).Msgf("Searching last address %d", index)
+		log.Debug().Str("Bulk address", address.Hex()).Msgf("Searching last address %d", index)
 		// This script will fail with endOfAccountsError
 		// if the account (address at given index) doesn't exist yet
 		_, err := client.ExecuteScriptAtBlockID(
@@ -101,7 +101,7 @@ func InitAddressProvider(
 	}
 
 	log.Info().
-		Str("Bulk: lastAddress", ap.indexToAddress(lastAddressIndex).Hex()).
+		Str("Bulk lastAddress", ap.indexToAddress(lastAddressIndex).Hex()).
 		Uint("numAccounts", lastAddressIndex).
 		Int("stepsNeeded", searchStep).
 		Msg("")
@@ -168,7 +168,7 @@ func (p *AddressProvider) GetNextAddress() (address flow.Address, isOutOfBounds 
 
 	// Give some progress information every so often
 	if p.currentIndex%(p.lastAddressIndex/10) == 0 {
-		p.log.Debug().Msgf("Bulk: Processed %v %% accounts", p.currentIndex/(p.lastAddressIndex/10)*10)
+		p.log.Debug().Msgf("Bulk Processed %v %% accounts", p.currentIndex/(p.lastAddressIndex/10)*10)
 	}
 
 	if p.currentIndex > p.lastAddressIndex {

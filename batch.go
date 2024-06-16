@@ -70,7 +70,7 @@ func ProcessAddressChannels(
 	config Params,
 ) error {
 	if client == nil {
-		return fmt.Errorf("batch: Failed to initialize flow client")
+		return fmt.Errorf("Batch Failed to initialize flow client")
 	}
 	lowPriorityWorkerCount := 2
 	resultsChan := make(chan []model.PublicKeyAccountIndexer)
@@ -81,16 +81,16 @@ func ProcessAddressChannels(
 		for {
 			select {
 			case <-ctx.Done():
-				log.Info().Msg("Batch: Context done, exiting result handler")
+				log.Info().Msg("Batch Context done, exiting result handler")
 				return
 			case keys, ok := <-resultsChan:
 				if !ok {
-					log.Info().Msg("Batch: Results channel closed, exiting result handler")
+					log.Info().Msg("Batch Results channel closed, exiting result handler")
 					return
 				}
 				errHandler := insertionHandler(keys)
 				if errHandler != nil {
-					log.Error().Err(errHandler).Msg("Batch: Failed to handle keys")
+					log.Error().Err(errHandler).Msg("Batch Failed to handle keys")
 				}
 			}
 		}
@@ -100,22 +100,22 @@ func ProcessAddressChannels(
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Error().Msgf("Batch: High-priority worker recovered from panic: %v", r)
+				log.Error().Msgf("Batch High-priority worker recovered from panic: %v", r)
 			}
 		}()
 
 		for {
 			select {
 			case <-ctx.Done():
-				log.Info().Msg("Batch: Context done, exiting high-priority worker")
+				log.Info().Msg("Batch Context done, exiting high-priority worker")
 				return
 			case accountAddresses, ok := <-highPriorityChan:
 				if !ok {
-					log.Warn().Msg("Batch: High-priority channel closed, exiting high-priority worker")
+					log.Warn().Msg("Batch High-priority channel closed, exiting high-priority worker")
 					return
 				}
 				// Create a new goroutine to process each high-priority address array
-				log.Debug().Msgf("Batch: High-priority worker processing %d addresses", len(accountAddresses))
+				log.Debug().Msgf("Batch High-priority worker processing %d addresses", len(accountAddresses))
 				go processAddresses(accountAddresses, ctx, log, client, resultsChan, fetchSlowdown)
 			}
 		}
@@ -126,35 +126,35 @@ func ProcessAddressChannels(
 		go func(workerID int) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Error().Msgf("Batch: Low-priority worker %d recovered from panic: %v", workerID, r)
+					log.Error().Msgf("Batch Low-priority worker %d recovered from panic: %v", workerID, r)
 				}
 			}()
 
 			for {
 				select {
 				case <-ctx.Done():
-					log.Info().Msgf("Batch: Context done, exiting low-priority worker %d", workerID)
+					log.Info().Msgf("Batch Context done, exiting low-priority worker %d", workerID)
 					return
 				case accountAddresses, ok := <-lowPriorityChan:
 					if !ok {
-						log.Warn().Msgf("Batch: Low-priority channel closed, worker %d exiting", workerID)
+						log.Warn().Msgf("Batch Low-priority channel closed, worker %d exiting", workerID)
 						return
 					}
-					log.Debug().Msgf("Batch: Low-priority worker %d processing %d addresses, q(%d)", workerID, len(accountAddresses), len(lowPriorityChan))
+					log.Debug().Msgf("Batch Bulk worker %d processing %d addresses, q(%d)", workerID, len(accountAddresses), len(lowPriorityChan))
 					// second worker gets longer fetchSlowdown
 					fetchSlowdown = fetchSlowdown * workerID
 					currentBlock, err := client.GetLatestBlockHeader(ctx, true)
 					if err != nil {
-						log.Error().Err(err).Msg("Batch: Could not get current block height from default flow client")
+						log.Error().Err(err).Msg("Batch Bulk Could not get current block height from default flow client")
 						return
 					}
-					log.Info().Msgf("Batch: Start Script Load, w(%d) %v, block %d, q(%d)", workerID, len(accountAddresses), currentBlock.Height, len(lowPriorityChan))
+					log.Info().Msgf("Batch Bulk Start Script Load, w(%d) %v, block %d, q(%d)", workerID, len(accountAddresses), currentBlock.Height, len(lowPriorityChan))
 					accountKeys, err := ProcessAddressWithScript(ctx, config, accountAddresses, log, client, fetchSlowdown, currentBlock.Height)
 					if err != nil {
-						log.Error().Err(err).Msgf("Batch: Failed Script Load, w(%d) addresses with script", workerID)
+						log.Error().Err(err).Msgf("Batch Bulk Failed Script Load, w(%d) addresses with script", workerID)
 						return
 					}
-					log.Info().Msgf("Batch: Finished Script Load, w(%d) %v, block %d, q(%d)", workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
+					log.Info().Msgf("Batch Bulk Finished Script Load, w(%d) %v, block %d, q(%d)", workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
 					resultsChan <- accountKeys
 				}
 			}
@@ -189,7 +189,7 @@ func processAddresses(
 		validAddresses = append(validAddresses, flow.HexToAddress(addr))
 	}
 
-	log.Info().Msgf("Batch: Processing addresses: %v", len(validAddresses))
+	log.Info().Msgf("Batch Processing addresses: %v", len(validAddresses))
 
 	for _, addr := range validAddresses {
 		addrStr := addr.String()
@@ -199,24 +199,24 @@ func processAddresses(
 
 		time.Sleep(time.Duration(fetchSlowdown) * time.Millisecond)
 
-		log.Debug().Msgf("Batch: Getting account: %v", addrStr)
+		log.Debug().Msgf("Batch Getting account: %v", addrStr)
 		acct, err := client.GetAccount(ctx, addr)
-		log.Debug().Msgf("Batch: Got account: %v", addrStr)
+		log.Debug().Msgf("Batch Got account: %v", addrStr)
 
 		if err != nil {
-			log.Warn().Err(err).Msgf("Batch: Failed to get account, %v", addrStr)
+			log.Warn().Err(err).Msgf("Batch Failed to get account, %v", addrStr)
 			continue
 		}
 		if acct == nil {
-			log.Warn().Msgf("Batch: Account not found: %v", addrStr)
+			log.Warn().Msgf("Batch Account not found: %v", addrStr)
 			continue
 		}
 		if acct.Keys == nil {
-			log.Warn().Msgf("Batch: Account has nil Keys: %v", addrStr)
+			log.Warn().Msgf("Batch Account has nil Keys: %v", addrStr)
 			continue
 		}
 		if len(acct.Keys) == 0 {
-			log.Warn().Msgf("Batch: Account has no keys: %v", addrStr)
+			log.Warn().Msgf("Batch Account has no keys: %v", addrStr)
 			// Save account with blank public key to avoid querying it again
 			keys = append(keys, model.PublicKeyAccountIndexer{
 				PublicKey: "blank",
