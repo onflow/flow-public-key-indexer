@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"example/flow-key-indexer/pkg/pg"
 	logger "log"
 	"testing"
@@ -64,7 +65,8 @@ func TestDuplicatedKeys(t *testing.T) {
 
 	accountKeys := []model.PublicKeyAccountIndexer{}
 	accountKeys = append(accountKeys, key1, key2, key1Dup, key3, key4)
-	db.InsertPublicKeyAccounts(accountKeys)
+	ctx := context.Background()
+	db.InsertPublicKeyAccounts(ctx, accountKeys)
 
 	checkKey1, _ := db.GetAccountsByPublicKey("publicKey1")
 	checkKey2, _ := db.GetAccountsByPublicKey("publicKey2")

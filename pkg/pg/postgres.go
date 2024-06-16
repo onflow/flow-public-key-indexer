@@ -45,15 +45,14 @@ func (s Store) Stats() model.PublicKeyStatus {
 		LoadedToBlock: status.LoadedToBlock,
 	}
 }
-func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) error {
-	ctx := context.Background()
+func (s Store) InsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) error {
 	insertedCount := 0
 
 	err := s.db.RunInTransaction(ctx, func(txCtx context.Context) error {
-		for _, publicKeyAccount := range pkis {
+		for _, publicKeyAccount := range publicKeys {
 			result := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&publicKeyAccount)
 			if result.Error != nil {
-				log.Debug().Err(result.Error).Msg("DB: Error inserting public key account record")
+				log.Debug().Err(result.Error).Msg("DB Error inserting public key account record")
 				// Return the error if it's not an integrity violation
 				return result.Error
 			}
@@ -64,9 +63,10 @@ func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) err
 		return nil
 	})
 
-	log.Info().Msgf("DB: Inserted %v of %v public key accounts", insertedCount, len(pkis))
+	log.Info().Msgf("DB Inserted %v of %v public key accounts", insertedCount, len(publicKeys))
 
 	if err != nil {
+		log.Error().Err(err).Msg("Transaction failed")
 		return err
 	}
 
@@ -91,7 +91,7 @@ func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
 			nonExistingAddresses = append(nonExistingAddresses, addr)
 		}
 	}
-	log.Info().Msgf("DB: Found %v addresses not in database", len(nonExistingAddresses))
+	log.Info().Msgf("DB Found %v addresses not in database", len(nonExistingAddresses))
 	return nonExistingAddresses, nil
 }
 

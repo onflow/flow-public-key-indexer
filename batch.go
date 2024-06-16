@@ -57,7 +57,7 @@ type Config struct {
 
 // Ignore list for accounts that keep getting same public keys added
 var ignoreAccounts = map[string]bool{
-	"0xbf48a20670f179b8": true, // placeholder, replace when account identified
+	"0000000000000000": true, // placeholder, replace when account identified
 }
 
 func ProcessAddressChannels(
@@ -66,14 +66,15 @@ func ProcessAddressChannels(
 	client *client.Client,
 	highPriorityChan chan []flow.Address,
 	lowPriorityChan chan []flow.Address,
-	insertionHandler func([]model.PublicKeyAccountIndexer) error,
+	insertionHandler func(context.Context, []model.PublicKeyAccountIndexer) error,
 	config Params,
 ) error {
 	if client == nil {
-		return fmt.Errorf("Batch Failed to initialize flow client")
+		return fmt.Errorf("batch Failed to initialize flow client")
 	}
 	lowPriorityWorkerCount := 2
-	resultsChan := make(chan []model.PublicKeyAccountIndexer)
+	bufferSize := 1000
+	resultsChan := make(chan []model.PublicKeyAccountIndexer, bufferSize)
 	fetchSlowdown := config.FetchSlowDownMs
 
 	// Launch a goroutine to handle results
@@ -88,7 +89,7 @@ func ProcessAddressChannels(
 					log.Info().Msg("Batch Results channel closed, exiting result handler")
 					return
 				}
-				errHandler := insertionHandler(keys)
+				errHandler := insertionHandler(ctx, keys)
 				if errHandler != nil {
 					log.Error().Err(errHandler).Msg("Batch Failed to handle keys")
 				}
@@ -137,7 +138,7 @@ func ProcessAddressChannels(
 					return
 				case accountAddresses, ok := <-lowPriorityChan:
 					if !ok {
-						log.Warn().Msgf("Batch Low-priority channel closed, worker %d exiting", workerID)
+						log.Warn().Msgf("Batch Bulk Low-priority channel closed, worker %d exiting", workerID)
 						return
 					}
 					log.Debug().Msgf("Batch Bulk worker %d processing %d addresses, q(%d)", workerID, len(accountAddresses), len(lowPriorityChan))

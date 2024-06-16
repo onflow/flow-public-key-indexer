@@ -54,6 +54,21 @@ func connectPG(conf DatabaseConfig) (*gorm.DB, error) {
 	gormDB, err := gorm.Open(dial, &gorm.Config{
 		Logger: newLogger,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
 
-	return gormDB, err
+	// Set up connection pooling
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sql.DB from Gorm DB: %w", err)
+	}
+
+	// Configure connection pool settings
+	sqlDB.SetMaxIdleConns(20)                  // Adjust based on expected idle time and load
+	sqlDB.SetMaxOpenConns(100)                 // Adjust based on database server capacity and peak load
+	sqlDB.SetConnMaxLifetime(time.Hour)        // Recycle connections every 1 hour
+	sqlDB.SetConnMaxIdleTime(15 * time.Minute) // Close idle connections after 15 minutes
+
+	return gormDB, nil
 }
