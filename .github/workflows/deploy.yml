@@ -1,6 +1,9 @@
 name: "Deploy to Cloud Run"
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
@@ -9,7 +12,47 @@ env:
   DOCKER_IMAGE_URL: ${{ vars.GCP_DOCKER_IMAGE_URL }}:${{ github.sha }}
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: ubuntu
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: keyindexer
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CA certificates
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates
+          update-ca-certificates
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.21
+      - name: Install dependencies
+        run: go mod tidy
+      - name: Run tests
+        env:
+          KEYIDX_POSTGRESQLHOST: postgres
+          KEYIDX_POSTGRESQLPORT: 5432
+          KEYIDX_POSTGRESQLUSERNAME: postgres
+          KEYIDX_POSTGRESQLPASSWORD: password
+          KEYIDX_POSTGRESQLDATABASE: keyindexer
+        run: go test ./... -v
+
   build:
+    needs: [test]
     runs-on: ubuntu-latest
     permissions:
       id-token: write

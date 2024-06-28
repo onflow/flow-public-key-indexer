@@ -2,28 +2,28 @@ package pg
 
 import (
 	"context"
-	"errors"
 	"example/flow-key-indexer/model"
-	"fmt"
+	"example/flow-key-indexer/utils"
 
 	_ "github.com/golang-migrate/migrate/database/postgres"
 	_ "github.com/golang-migrate/migrate/source/file"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm/clause"
 )
 
 type Store struct {
 	conf   DatabaseConfig
 	logger zerolog.Logger
 	db     *Database
-	done   chan bool
+	done   chan struct{} // Semaphore channel to limit concurrency
 }
 
 func NewStore(conf DatabaseConfig, logger zerolog.Logger) *Store {
 	return &Store{
 		conf:   conf,
 		logger: logger,
-		done:   make(chan bool, 1),
+		done:   make(chan struct{}, 1), // Initialize semaphore with capacity 1
 	}
 }
 
@@ -36,103 +36,135 @@ func (s *Store) Start(purgeOnStart bool) error {
 
 	err = s.db.InitDatabase(purgeOnStart)
 	return err
-
 }
 
 func (s Store) Stats() model.PublicKeyStatus {
 	status, _ := s.GetPublicKeyStats()
-	isBulkLoading := uint64(status.UpdatedToBlock) == uint64(0)
 
 	return model.PublicKeyStatus{
-		Count:          status.Count,
-		UpdatedToBlock: status.UpdatedToBlock,
-		PendingToBlock: status.PendingToBlock,
-		IsBulkLoading:  isBulkLoading,
+		Count:         status.Count,
+		LoadedToBlock: status.LoadedToBlock,
 	}
 }
 
-func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) error {
-	ctx := context.Background()
-	err := s.db.RunInTransaction(ctx, func(ctx context.Context) error {
+func (s Store) BatchInsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) (int64, error) {
+	batchSize := len(publicKeys)
+	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		DoNothing: true,
+	}).CreateInBatches(publicKeys, batchSize)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return result.RowsAffected, nil
+}
 
-		for _, publicKeyAccount := range pkis {
-
-			err := s.db.Create(&publicKeyAccount).Error
-
-			if errors.Is(err, ErrIntegrityViolation) {
-				// this can occur when accounts get reloaded, expected
-				// leaving this here for documentation
-			} else {
-				if err != nil {
-					log.Debug().Err(err).Msg("inserting public key account record")
-				}
-
-			}
-		}
+func (s Store) InsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) error {
+	if len(publicKeys) == 0 {
 		return nil
-	})
+	}
+
+	insertedCount, err := s.BatchInsertPublicKeyAccounts(ctx, publicKeys)
+
+	if insertedCount > 0 {
+		log.Info().Msgf("DB Inserted %v of %v public key accounts", insertedCount, len(publicKeys))
+	}
 
 	if err != nil {
-		if errors.Is(err, ErrIntegrityViolation) {
-			// ignore if data already stored
-			return nil
-		}
-
+		log.Error().Err(err).Msg("Transaction failed")
 		return err
 	}
 
 	return nil
 }
 
-func (s Store) UpdateUpdatedBlockHeight(blockNumber uint64) {
-	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET updatedBlockheight = %v`, blockNumber)
-	err := s.db.Raw(sqlStatement, blockNumber).Error
+func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
+	var existingAddresses []string
+	err := s.db.Model(&model.PublicKeyAccountIndexer{}).Where("account IN ?", addresses).Pluck("account", &existingAddresses).Error
 	if err != nil {
-		s.logger.Error().Err(err).Msgf("could not update updated block height %v", blockNumber)
+		log.Debug().Err(err).Msg("Error checking if accounts exist")
+		return nil, err
 	}
+	addressMap := make(map[string]bool)
+	for _, addr := range existingAddresses {
+		addressMap[addr] = true
+	}
+
+	var nonExistingAddresses []string
+	for _, addr := range addresses {
+		if !addressMap[addr] {
+			nonExistingAddresses = append(nonExistingAddresses, addr)
+		}
+	}
+	log.Info().Msgf("DB Found %v addresses not in database", len(nonExistingAddresses))
+	return nonExistingAddresses, nil
 }
 
-func (s Store) GetUpdatedBlockHeight() (uint64, error) {
-	query := "SELECT updatedBlockheight FROM publickeyindexer_stats;"
-	var blockNumber uint64
+func (s Store) GetUniqueAddresses() (<-chan string, error) {
+	out := make(chan string)
+	query := "SELECT DISTINCT account FROM publickeyindexer;"
 
-	err := s.db.Raw(
-		query,
-	).Scan(&blockNumber).Error
+	go func() {
+		defer close(out)
 
-	if err != nil {
-		s.logger.Error().Err(err).Msgf("get loading block height %v", blockNumber)
-	}
+		rows, err := s.db.Raw(query).Rows()
+		if err != nil {
+			log.Debug().Err(err).Msg("Error checking if accounts exist")
+			return
+		}
+		defer rows.Close()
 
-	return blockNumber, nil
+		var address string
+		for rows.Next() {
+			if err := rows.Scan(&address); err != nil {
+				log.Debug().Err(err).Msg("Error scanning address")
+				return
+			}
+			out <- address
+		}
+
+		if err := rows.Err(); err != nil {
+			log.Debug().Err(err).Msg("Error during rows iteration")
+		}
+	}()
+
+	return out, nil
 }
 
 func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
-	query := "SELECT uniquePublicKeys, updatedBlockheight, pendingBlockheight FROM publickeyindexer_stats;"
-	type Result struct {
-		UniquePublicKeys   int `gorm:"column:uniquepublickeys"`
-		UpdatedBlockheight int `gorm:"column:updatedblockheight"`
-		PendingBlockheight int `gorm:"column:pendingblockheight"`
-	}
+	query := "SELECT uniquePublicKeys FROM publickeyindexer_stats;"
 
-	var result Result
+	var uniquePublicKeys int
 
-	err := s.db.Raw(query).Scan(&result).Error
+	err := s.db.Raw(query).Scan(&uniquePublicKeys).Error
 	if err != nil {
-		s.logger.Error().Err(err).Msgf("get status %v", result.UniquePublicKeys)
+		s.logger.Error().Err(err).Msgf("get status %v", uniquePublicKeys)
 	}
+
+	// get pending block height, multi field select is having issues
+	pending, _ := s.GetLoadedBlockHeight()
 	status := model.PublicKeyStatus{
-		Count:          result.UniquePublicKeys,
-		UpdatedToBlock: result.UpdatedBlockheight,
-		PendingToBlock: result.PendingBlockheight,
+		Count:         uniquePublicKeys,
+		LoadedToBlock: int(pending),
 	}
 	return status, nil
 }
 
 func (s Store) UpdateDistinctCount() {
-	cnt, _ := s.GetCount()
-	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET uniquePublicKeys = %v`, cnt)
-	err := s.db.Raw(sqlStatement).Error
+	// Acquire a slot in the semaphore
+	s.done <- struct{}{}
+	defer func() {
+		// Release the slot when finished
+		<-s.done
+	}()
+
+	cnt, err := s.GetCount()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Error getting count")
+		return
+	}
+	s.logger.Debug().Msgf("Updating unique public keys count to %v", cnt)
+	sqlStatement := `UPDATE publickeyindexer_stats SET uniquePublicKeys = ?`
+	err = s.db.Exec(sqlStatement, cnt).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update unique public keys %v", cnt)
 	}
@@ -145,22 +177,24 @@ func (s Store) GetCount() (int, error) {
 	err := s.db.Raw(query).Scan(&cnt).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get distinct publickey count %v", cnt)
+		return 0, err
 	}
 
+	s.logger.Debug().Msgf("Distinct public key count is %v", cnt)
 	return cnt, nil
 }
 
-func (s Store) UpdateLoadingBlockHeight(blockNumber uint64) {
-	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET pendingBlockheight = %v`, blockNumber)
+func (s Store) UpdateLoadedBlockHeight(blockNumber uint64) {
+	log.Debug().Msgf("Updating loaded block height to %v", blockNumber)
+	sqlStatement := `UPDATE publickeyindexer_stats SET pendingBlockheight = ?`
 
-	err := s.db.Raw(sqlStatement).Error
+	err := s.db.Exec(sqlStatement, blockNumber).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update loading block height %v", blockNumber)
 	}
-
 }
 
-func (s Store) GetLoadingBlockHeight() (uint64, error) {
+func (s Store) GetLoadedBlockHeight() (uint64, error) {
 	query := "SELECT pendingBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
 
@@ -172,12 +206,11 @@ func (s Store) GetLoadingBlockHeight() (uint64, error) {
 	return blockNumber, nil
 }
 
-func (s Store) RemovePublicKeyInfo(publicKey string, account string) {
-	s.logger.Debug().Msgf("remove pk and acct %v %v", publicKey, account)
-	sqlStatement := `DELETE FROM publickeyindexer WHERE publickey = $1 and account = $2;`
-	err := s.db.Raw(sqlStatement, publicKey, account).Error
+func (s Store) RemoveAccountForReloading(account string) {
+	sqlStatement := `DELETE FROM publickeyindexer WHERE account = $2;`
+	err := s.db.Raw(sqlStatement, account).Error
 	if err != nil {
-		s.logger.Warn().Msgf("Could not remove record %v %v", account, publicKey)
+		s.logger.Warn().Msgf("Could not remove record %v", account)
 	}
 }
 
@@ -192,8 +225,9 @@ func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer,
 	accts := []model.AccountKey{}
 	// consolidate account data
 	for _, pk := range publickeys {
+		a := utils.FixAccountLength(pk.Account)
 		acct := model.AccountKey{
-			Account: pk.Account,
+			Account: a,
 			KeyId:   pk.KeyId,
 			Weight:  pk.Weight,
 		}

@@ -21,12 +21,13 @@ package main
 import (
 	"context"
 	_ "embed"
+	"example/flow-key-indexer/model"
+	"example/flow-key-indexer/utils"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
+	"github.com/onflow/flow-go-sdk/client"
 	flowclient "github.com/onflow/flow-go-sdk/client"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
@@ -55,197 +56,210 @@ type Config struct {
 	ignoreRevoked      bool
 }
 
-var DefaultConfig = Config{
-	BatchSize:          100,
-	AtBlockHeight:      0,
-	FlowAccessNodeURLs: []string{"access.mainnet.nodes.onflow.org:9000"},
-	Pause:              0,
-	ChainID:            "flow-mainnet",
+// Ignore list for accounts that keep getting same public keys added
+var ignoreAccounts = map[string]bool{
+	"0000000000000000": true, // placeholder, replace when account identified
 }
 
-func GetAllAddresses(
+func ProcessAddressChannels(
 	ctx context.Context,
 	log zerolog.Logger,
-	conf Config,
-	addressChan chan []flow.Address,
-) (height uint64, err error) {
-	flowClient := getFlowClient(conf.FlowAccessNodeURLs[0])
-
-	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
-	if err != nil {
-		return 0, err
+	client *client.Client,
+	highPriorityChan chan []flow.Address,
+	lowPriorityChan chan []flow.Address,
+	insertionHandler func(context.Context, []model.PublicKeyAccountIndexer) error,
+	config Params,
+) error {
+	if client == nil {
+		return fmt.Errorf("batch Failed to initialize flow client")
 	}
+	lowPriorityWorkerCount := 2
+	bufferSize := 1000
+	resultsChan := make(chan []model.PublicKeyAccountIndexer, bufferSize)
+	fetchSlowdown := config.FetchSlowDownMs
 
-	ap, err := InitAddressProvider(ctx, log, conf.ChainID, currentBlock.ID, flowClient, conf.Pause)
-	if err != nil {
-		return 0, err
-	}
-	ap.GenerateAddressBatches(addressChan, conf.BatchSize)
-
-	return currentBlock.Height, nil
-}
-
-func RunAddressCadenceScript(
-	ctx context.Context,
-	log zerolog.Logger,
-	conf Config,
-	script string,
-	handler func(cadence.Value, uint64),
-	addressChan chan []flow.Address,
-) (height uint64, err error) {
-	code := []byte(script)
-	flowUrl := conf.FlowAccessNodeURLs[0] // use first flow client url
-	flowClient := getFlowClient(flowUrl)
-
-	currentBlock, err := getBlockHeight(ctx, conf, flowClient)
-	if err != nil {
-		return 0, err
-	}
-
+	// Launch a goroutine to handle results
 	go func() {
-		// Each worker has a separate Flow client
-		client := getFlowClient(flowUrl)
-		defer func() {
-			err = client.Close()
-			if err != nil {
-				log.Warn().
-					Err(err).
-					Msg("error closing client")
+		for {
+			select {
+			case <-ctx.Done():
+				log.Info().Msg("Batch Context done, exiting result handler")
+				return
+			case keys, ok := <-resultsChan:
+				if !ok {
+					log.Info().Msg("Batch Results channel closed, exiting result handler")
+					return
+				}
+
+				if len(keys) == 0 {
+					continue
+				}
+
+				start := time.Now()
+				errHandler := insertionHandler(ctx, keys)
+				duration := time.Since(start)
+				log.Info().Msgf("Batch DB d(%f) q(%v) to be stored", duration.Seconds(), len(resultsChan))
+				if errHandler != nil {
+					log.Error().Err(errHandler).Msgf("Batch Failed to handle keys, %v, break up into smaller chunks", len(keys))
+					// break up batch into smaller chunks
+					for i := 0; i < len(keys); i += config.BatchSize {
+						end := i + config.BatchSize
+						if end > len(keys) {
+							end = len(keys)
+						}
+						errHandler = insertionHandler(ctx, keys[i:end])
+						if errHandler != nil {
+							log.Error().Err(errHandler).Msg("Batch Failed to handle keys")
+						}
+					}
+				}
 			}
-		}()
-
-		// Get the batches of address through addressChan,
-		// run the script with that batch of addresses,
-		// and pass the result to the handler
-
-		for accountAddresses := range addressChan {
-			runScript(ctx, conf, accountAddresses, log, code, flowClient, handler)
 		}
 	}()
 
-	return currentBlock.Height, nil
-}
+	// High-priority worker
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Msgf("Batch High-priority worker recovered from panic: %v", r)
+			}
+		}()
 
-func runScript(
-	ctx context.Context,
-	conf Config,
-	addresses []flow.Address,
-	log zerolog.Logger,
-	script []byte,
-	flowClient *flowclient.Client,
-	handler func(cadence.Value, uint64),
-) {
-	currentBlock, _ := getBlockHeight(ctx, conf, flowClient)
-	accountsCadenceValues := convertAddresses(addresses)
-	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.maxAcctKeys), cadence.NewBool(conf.ignoreZeroWeight), cadence.NewBool(conf.ignoreRevoked)}
-	result, err, rerun := retryScriptUntilSuccess(ctx, log, currentBlock.Height, script, arguments, flowClient, conf.Pause)
-
-	if rerun {
-		log.Error().Err(err).Msgf("reducing num accounts. (%d addr)", len(accountsCadenceValues))
-		for _, newAddresses := range splitAddr(addresses) {
-			log.Warn().Msgf("rerunning script with fewer addresses (%d addr)", len(newAddresses))
-			runScript(ctx, conf, newAddresses, log, script, flowClient, handler)
+		for {
+			select {
+			case <-ctx.Done():
+				log.Info().Msg("Batch Context done, exiting high-priority worker")
+				return
+			case accountAddresses, ok := <-highPriorityChan:
+				if !ok {
+					log.Warn().Msg("Batch High-priority channel closed, exiting high-priority worker")
+					return
+				}
+				// Create a new goroutine to process each high-priority address array
+				log.Debug().Msgf("Batch High-priority worker processing %d addresses", len(accountAddresses))
+				go processAddresses(accountAddresses, ctx, log, client, resultsChan, fetchSlowdown, insertionHandler)
+			}
 		}
-	} else {
-		handler(result, currentBlock.Height)
+	}()
+
+	// Low-priority workers
+	for i := 1; i <= lowPriorityWorkerCount; i++ {
+		go func(workerID int) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error().Msgf("Batch Low-priority worker %d recovered from panic: %v", workerID, r)
+				}
+			}()
+
+			for {
+				select {
+				case <-ctx.Done():
+					log.Info().Msgf("Batch Context done, exiting low-priority worker %d", workerID)
+					return
+				case accountAddresses, ok := <-lowPriorityChan:
+					if !ok {
+						log.Warn().Msgf("Batch Bulk Low-priority channel closed, worker %d exiting", workerID)
+						return
+					}
+					if len(accountAddresses) == 0 {
+						continue
+					}
+					start := time.Now()
+					log.Debug().Msgf("Batch Bulk worker %d processing %d addresses, q(%d)", workerID, len(accountAddresses), len(lowPriorityChan))
+					// second worker gets longer fetchSlowdown
+					fetchSlowdown = fetchSlowdown * workerID
+					currentBlock, err := client.GetLatestBlockHeader(ctx, true)
+					if err != nil {
+						log.Error().Err(err).Msg("Batch Bulk Could not get current block height from default flow client")
+						return
+					}
+					accountKeys, err := ProcessAddressWithScript(ctx, config, accountAddresses, log, client, fetchSlowdown, currentBlock.Height)
+					if err != nil {
+						log.Error().Err(err).Msgf("Batch Bulk Failed Script Load, w(%d) addresses with script", workerID)
+						return
+					}
+					duration := time.Since(start)
+					log.Info().Msgf("Batch Bulk Finished Script Load, duration(%f) w(%d) %v, block %d, q(%d)", duration.Seconds(), workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
+					if len(accountKeys) > 0 {
+						resultsChan <- accountKeys
+					}
+				}
+			}
+		}(i)
 	}
+
+	return nil
 }
 
-func getBlockHeight(ctx context.Context, conf Config, flowClient *flowclient.Client) (*flow.BlockHeader, error) {
-	if conf.AtBlockHeight != 0 {
-		blk, err := flowClient.GetBlockByHeight(ctx, conf.AtBlockHeight)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get block at the specified height: %w", err)
-		}
-		return &blk.BlockHeader, nil
-	} else {
-		block, err := flowClient.GetLatestBlockHeader(ctx, true)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get the latest block header: %w", err)
-		}
-		return block, nil
-	}
-}
-
-// retries running the cadence script until we get a successful response back,
-// returning an array of balance pairs, along with a boolean representing whether we can continue
-// or are finished processing.
-func retryScriptUntilSuccess(
+func processAddresses(
+	accountAddresses []flow.Address,
 	ctx context.Context,
 	log zerolog.Logger,
-	blockHeight uint64,
-	script []byte,
-	arguments []cadence.Value,
-	flowClient *flowclient.Client,
-	pause time.Duration,
-) (cadence.Value, error, bool) {
-	var err error
-	var result cadence.Value
-	rerun := true
-	attempts := 0
-	maxAttemps := 5
-	last := time.Now()
+	client *flowclient.Client,
+	resultsChan chan []model.PublicKeyAccountIndexer,
+	fetchSlowdown int, insertHandler func(context.Context, []model.PublicKeyAccountIndexer) error) {
 
-	for {
-		if time.Since(last) < pause {
-			time.Sleep(pause)
-		}
-		last = time.Now()
+	var keys []model.PublicKeyAccountIndexer
 
-		result, err = flowClient.ExecuteScriptAtBlockHeight(
-			ctx,
-			blockHeight,
-			script,
-			arguments,
-			grpc.MaxCallRecvMsgSize(16*1024*1024),
-		)
-		if err == nil {
-			rerun = false
-			break
-		}
-		attempts = attempts + 1
-		if err != nil {
-			log.Error().Err(err).Msgf("%d attempt", attempts)
-		}
-		if attempts > maxAttemps || strings.Contains(err.Error(), "connection termination") {
-			// give up and don't retry
-			rerun = false
-			break
-		}
-		if strings.Contains(err.Error(), "ResourceExhausted") {
-			// really slow down when node is ResourceExhausted
-			time.Sleep(2 * pause)
+	if len(accountAddresses) == 0 {
+		return
+	}
+
+	log.Info().Msgf("Batch API Processing addresses: %v", len(accountAddresses))
+
+	for _, addr := range accountAddresses {
+		addrStr := utils.Add0xPrefix(addr.String())
+		if _, ok := ignoreAccounts[addrStr]; ok {
 			continue
 		}
-		if strings.Contains(err.Error(), "DeadlineExceeded") {
-			// pass error back to caller, script ran too long
-			break
+
+		time.Sleep(time.Duration(fetchSlowdown) * time.Millisecond)
+
+		log.Debug().Msgf("Batch Getting account: %v", addrStr)
+		acct, err := client.GetAccount(ctx, addr)
+		log.Debug().Msgf("Batch Got account: %v", addrStr)
+
+		if err != nil {
+			log.Warn().Err(err).Msgf("Batch Failed to get account, %v", addrStr)
+			continue
 		}
-	}
-
-	return result, err, rerun
-}
-
-func convertAddresses(addresses []flow.Address) []cadence.Value {
-	var accounts []cadence.Value
-	for _, address := range addresses {
-		accounts = append(accounts, cadence.Address(address))
-	}
-	return accounts
-}
-
-func splitAddr(addresses []flow.Address) [][]flow.Address {
-	limit := int(len(addresses) / 2)
-	var temp2 []flow.Address
-	var temp []flow.Address
-
-	for i := 0; i < len(addresses); i++ {
-		addr := addresses[i]
-		if i < limit {
-			temp = append(temp, addr)
+		if acct == nil {
+			log.Warn().Msgf("Batch Account not found: %v", addrStr)
+			continue
+		}
+		if acct.Keys == nil {
+			log.Warn().Msgf("Batch Account has nil Keys: %v", addrStr)
+			continue
+		}
+		if len(acct.Keys) == 0 {
+			log.Warn().Msgf("Batch Account has no keys: %v", addrStr)
+			// Save account with blank public key to avoid querying it again
+			keys = append(keys, model.PublicKeyAccountIndexer{
+				PublicKey: "blank",
+				Account:   utils.Add0xPrefix(addrStr),
+				Weight:    0,
+				KeyId:     0,
+			})
 		} else {
-			temp2 = append(temp2, addr)
+			for _, key := range acct.Keys {
+				// Clean up the public key, remove the 0x prefix
+				keys = append(keys, model.PublicKeyAccountIndexer{
+					PublicKey: utils.Strip0xPrefix(key.PublicKey.String()),
+					Account:   utils.Add0xPrefix(addrStr),
+					Weight:    key.Weight,
+					KeyId:     key.Index,
+				})
+			}
 		}
 	}
-	return [][]flow.Address{temp, temp2}
+
+	// Send the keys to the results channel
+	err := insertHandler(ctx, keys)
+	if err != nil {
+		log.Error().Err(err).Msgf("Batch API Failed save keys, %v sending to DB channel instead", len(keys))
+		resultsChan <- keys
+	} else {
+		log.Info().Msgf("Batch API Saved %v keys of %v addresses", len(keys), len(accountAddresses))
+	}
+
 }

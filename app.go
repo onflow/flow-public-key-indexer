@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"example/flow-key-indexer/pkg/pg"
 	"strings"
 	"time"
+
+	_ "net/http/pprof"
 
 	"github.com/onflow/flow-go-sdk"
 	"github.com/rs/zerolog"
@@ -11,24 +14,27 @@ import (
 )
 
 type Params struct {
-	LogLevel            string `default:"info"`
-	Port                string `default:"8080"`
-	FlowUrl1            string `default:"access.mainnet.nodes.onflow.org:9000"`
-	FlowUrl2            string
-	FlowUrl3            string
-	FlowUrl4            string
-	AllFlowUrls         []string `ignored:"true"`
-	ChainId             string   `default:"flow-mainnet"`
-	MaxAcctKeys         int      `default:"1000"`
-	BatchSize           int      `default:"100"`
-	IgnoreZeroWeight    bool     `default:"true"`
-	IgnoreRevoked       bool     `default:"true"`
-	WaitNumBlocks       int      `default:"200"`
-	BlockPolIntervalSec int      `default:"180"`
-	MaxBlockRange       int      `default:"600"`
-	FetchSlowDownMs     int      `default:"50"`
-	PurgeOnStart        bool     `default:"false"`
-	EnableSyncData      bool     `default:"true"`
+	LogLevel               string `default:"info"`
+	Port                   string `default:"8080"`
+	FlowUrl1               string `default:"access.mainnet.nodes.onflow.org:9000"`
+	FlowUrl2               string
+	FlowUrl3               string
+	FlowUrl4               string
+	AllFlowUrls            []string `ignored:"true"`
+	ChainId                string   `default:"flow-mainnet"`
+	MaxAcctKeys            int      `default:"1000"`
+	BatchSize              int      `default:"50000"`
+	IgnoreZeroWeight       bool     `default:"true"`
+	IgnoreRevoked          bool     `default:"true"`
+	WaitNumBlocks          int      `default:"200"`
+	BlockPolIntervalSec    int      `default:"180"`
+	SyncDataPolIntervalMin int      `default:"10"`
+	SyncDataStartIndex     int      `default:"30000000"`
+	MaxBlockRange          int      `default:"600"`
+	FetchSlowDownMs        int      `default:"500"`
+	PurgeOnStart           bool     `default:"false"`
+	EnableSyncData         bool     `default:"true"`
+	EnableIncremental      bool     `default:"true"`
 
 	PostgreSQLHost              string        `default:"localhost"`
 	PostgreSQLPort              uint16        `default:"5432"`
@@ -72,122 +78,164 @@ func (a *App) Initialize(params Params) {
 }
 
 func (a *App) Run() {
-	// if anything happens close the db
-	if a.p.EnableSyncData {
-		log.Info().Msgf("Data Sync service is enabled")
-		go func() { a.loadPublicKeyData() }()
+	bufferSize := 100
+	ctx := context.Background()
+	highPriChan := make(chan []flow.Address)
+	lowPriAddressChan := make(chan []flow.Address, bufferSize)
+	currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(context.Background(), true)
+
+	if err != nil {
+		log.Error().Err(err).Msg("Could not get current block height")
+	}
+	if currentBlock == nil {
+		log.Error().Msg("Could not get current block height")
+	}
+	if currentBlock.Height == 0 {
+		log.Error().Msg("Could not get current block height")
 	}
 
+	startingBlockHeight := currentBlock.Height - uint64(a.p.MaxBlockRange)
+
+	a.DB.UpdateLoadedBlockHeight(startingBlockHeight)
+
+	log.Debug().Msgf("Current block from server %v", currentBlock.Height)
+
+	if err != nil {
+		log.Error().Err(err).Msg("Could not get current block height")
+	}
+
+	// start up process to handle addresses that are put in addressChan channel
+	ProcessAddressChannels(ctx, log.Logger, a.flowClient.Client,
+		highPriChan, lowPriAddressChan,
+		a.DB.InsertPublicKeyAccounts, a.p)
+
+	if a.p.EnableSyncData {
+		log.Info().Msgf("Data Sync service is enabled")
+		go a.bulkLoad(lowPriAddressChan)
+	}
+
+	if a.p.EnableIncremental {
+		log.Info().Msgf("Incremental service is enabled")
+		go a.loadIncrementalData(highPriChan)
+	}
+	go a.waitForChannelsToUpdateDistinct(ctx, highPriChan, lowPriAddressChan, time.Duration(a.p.SyncDataPolIntervalMin)*time.Minute, a.DB.UpdateDistinctCount)
 	a.rest.Start()
 }
 
-func (a *App) loadPublicKeyData() {
-	addressChan := make(chan []flow.Address)
-	a.dataLoader.SetupAddressLoader(addressChan)
+func (a *App) loadIncrementalData(addressChan chan []flow.Address) {
+	// Kick off the incremental load first
+	a.incrementalLoad(addressChan)
 
-	// note: get current block pass into incremetal
-	// testing
-	currentBlock, err := a.flowClient.GetCurrentBlockHeight()
-	log.Debug().Msgf("Current block from server %v", currentBlock)
-	if err != nil {
-		log.Error().Err(err).Msg("Could not get current block height")
-	}
-	a.DB.UpdateLoadingBlockHeight(currentBlock)
-	updatedBlkHeight, _ := a.DB.GetUpdatedBlockHeight()
-	isTooFarBehind := currentBlock-updatedBlkHeight > uint64(a.p.MaxBlockRange)
-
-	// if restarted during initial loading, restart bulk load
-	if updatedBlkHeight == 0 || isTooFarBehind {
-		if isTooFarBehind && updatedBlkHeight != 0 {
-			log.Info().Msg("Incremental is too far behind, starting bulk load")
-		}
-		go func() { a.bulkLoad(addressChan) }()
-	}
-
-	// start ticker
 	ticker := time.NewTicker(time.Duration(a.p.BlockPolIntervalSec) * time.Second)
-	quit := make(chan struct{})
+
 	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				go func() {
-					a.increamentalLoad(addressChan, a.p.MaxBlockRange, a.p.WaitNumBlocks)
-				}()
-			case <-quit:
-				log.Info().Msg("ticket is stopped")
-				ticker.Stop()
-				return
-			}
+		for range ticker.C {
+			a.incrementalLoad(addressChan)
 		}
 	}()
-
 }
 
-func (a *App) bulkLoad(addressChan chan []flow.Address) {
-	start := time.Now()
-	log.Info().Msg("Start Bulk Key Load")
-	currentBlock, err := a.flowClient.GetCurrentBlockHeight()
-	if err != nil {
-		log.Error().Err(err).Msg("Could not get current block height")
-	}
-	// sets starting block height for incremental loader
-	a.DB.UpdateLoadingBlockHeight(currentBlock)
+func (a *App) waitForAddressChanToReduce(addressChan chan []flow.Address, pause time.Duration) {
+	ticker := time.NewTicker(pause)
+	defer ticker.Stop()
 
-	errLoad := a.dataLoader.RunAllAddressesLoader(addressChan)
-	//errLoad := testRunAddresses(addressChan)
-
-	if errLoad != nil {
-		log.Error().Err(errLoad).Msg("could not bulk load public keys")
+	for range ticker.C {
+		log.Debug().Msgf("Address channel size %d", len(addressChan))
+		if len(addressChan) < 10 {
+			log.Debug().Msg("Address channel has cleared enough, run another bulk loader")
+			return
+		}
 	}
-	duration := time.Since(start)
-	log.Info().Msgf("End Bulk Load, duration %f min", duration.Minutes())
 }
 
-/*
-	func testRunAddresses(addressChan chan []flow.Address) error {
-		// mainnet
-		addresses := []flow.Address{flow.HexToAddress("0xb643d57edb1740c6"), flow.HexToAddress("0x1b1c31af469bc4dc")}
-		// testnet
-		//addresses := []flow.Address{flow.HexToAddress("0x668b91e2995c2eba"), flow.HexToAddress("0x1d83294670972f97")}
-		addressChan <- addresses
-		return nil
+func (a *App) waitForChannelsToUpdateDistinct(ctx context.Context, highChan chan []flow.Address, lowChan chan []flow.Address, pause time.Duration, updateDistinctCount func()) {
+	ticker := time.NewTicker(pause)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Debug().Msg("Service is stopping, exiting waitForChannelsToUpdateDistinct")
+			return
+		case <-ticker.C:
+			log.Debug().Msgf("High-priority channel size %d", len(highChan))
+			log.Debug().Msgf("Low-priority channel size %d", len(lowChan))
+
+			if len(highChan) < 10 && len(lowChan) < 10 {
+				log.Debug().Msg("Both channels have cleared enough, run another bulk loader")
+				updateDistinctCount()
+			}
+		}
 	}
-*/
-func (a *App) increamentalLoad(addressChan chan []flow.Address, maxBlockRange int, waitNumBlocks int) {
+}
+
+func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
+	ctx := context.Background()
+	startIndex := uint(a.p.SyncDataStartIndex)
+	pause := time.Duration(a.p.FetchSlowDownMs) * time.Millisecond
+	// continuously run the bulk load process
+	for {
+		start := time.Now()
+		currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(ctx, true)
+		if err != nil {
+			log.Error().Err(err).Msg("Bulk Could not get current block height from default flow client")
+		}
+
+		log.Info().Msgf("Bulk Start Load, %v", currentBlock.Height)
+
+		ap, errLoad := InitAddressProvider(ctx, log.Logger, flow.ChainID(a.p.ChainId), currentBlock.ID, a.flowClient.Client, pause, startIndex)
+		if errLoad != nil {
+			log.Error().Err(errLoad).Msg("Bulk, could not initialize address provider")
+		}
+		// set start index based on found address last index
+		startIndex = ap.lastAddressIndex
+		log.Debug().Msgf("Bulk Last address index %d", startIndex)
+		ap.GenerateAddressBatches(lowPrioAddressChan, a.p.BatchSize)
+
+		duration := time.Since(start)
+		log.Info().Msgf("Bulk End Load, duration %f min, %v", duration.Minutes(), currentBlock.Height)
+
+		// wait for the address channel to reduce before running another bulk load
+		a.waitForAddressChanToReduce(lowPrioAddressChan, pause)
+		// Add a delay if needed to prevent it from running too frequently
+		time.Sleep(time.Duration(a.p.SyncDataPolIntervalMin) * time.Minute) // Adjust the sleep duration as needed
+	}
+}
+
+func (a *App) incrementalLoad(addressChan chan []flow.Address) {
 	start := time.Now()
-	loadingBlkHeight, _ := a.DB.GetLoadingBlockHeight()
-	updatedToBlock, _ := a.DB.GetUpdatedBlockHeight()
-	currentBlock, err := a.flowClient.GetCurrentBlockHeight()
-	if err != nil {
-		log.Error().Err(err).Msg("Could not get current block height")
-	}
-	// initial bulk loading is going on
-	isLoading := updatedToBlock == 0
-
-	loadingBlockRange := int(currentBlock) - int(loadingBlkHeight)
-	isLoadingOutOfRange := loadingBlockRange >= maxBlockRange
-
-	if isLoadingOutOfRange {
-		log.Debug().Msgf("curr: %d ldg blk: %d diff: %d max: %d", currentBlock, loadingBlkHeight, loadingBlockRange, maxBlockRange)
-		log.Error().Msg("loading will not catch up, adjust run parameters to speed up load time")
+	loadedBlkHeight, _ := a.DB.GetLoadedBlockHeight()
+	currentHeight, errCurr := a.flowClient.GetCurrentBlockHeight()
+	blockRange := currentHeight - loadedBlkHeight
+	if errCurr != nil {
+		log.Error().Err(errCurr).Msg("Inc could not get current block height")
 		return
 	}
 
-	log.Debug().Msgf("check inc: (%t) (curr: %d) (%d blks)", loadingBlockRange >= waitNumBlocks, currentBlock, loadingBlockRange)
-	if loadingBlockRange <= waitNumBlocks {
-		// need to wait for more blocks
-		return
-	}
-	// start loading from next block
-	startLoadingFrom := loadingBlkHeight + 1
-	addressCount, restart := a.dataLoader.RunIncAddressesLoader(addressChan, isLoading, startLoadingFrom)
-	duration := time.Since(start)
-	log.Info().Msgf("Inc Load, %f sec, (%d blk) curr: %d (%d addr)", duration.Seconds(), loadingBlockRange, currentBlock, addressCount)
+	log.Info().Msgf("Inc Start Load, from %d, to: %d, to load %d", loadedBlkHeight, currentHeight, blockRange)
 
-	if restart && !isLoading {
-		log.Warn().Msg("Force restart bulk load")
-		go func() { a.bulkLoad(addressChan) }()
+	var synchToBlockHeight uint64
+	var err error
+	synchToBlockHeight, err = a.dataLoader.RunIncAddressesLoader(addressChan, loadedBlkHeight, currentHeight)
+	if err != nil {
+		log.Error().Err(err).Msg("Inc could not load incremental public keys, will retry if falling behind ")
+	}
+	duration := time.Since(start)
+
+	if err == nil {
+		a.DB.UpdateLoadedBlockHeight(synchToBlockHeight)
+	}
+
+	log.Info().Msgf("Inc Finish Load, %f sec, from: %d to: %d, loaded %d", duration.Seconds(), loadedBlkHeight, synchToBlockHeight, synchToBlockHeight-loadedBlkHeight)
+
+	currentBlockHeight, _ := a.flowClient.GetCurrentBlockHeight()
+	// check if processing events took too long to wait for another interval and run an extra incremental load
+	newBlockRange := currentBlockHeight - synchToBlockHeight
+	if newBlockRange > uint64(a.p.WaitNumBlocks) {
+		refreshBlock := currentBlockHeight - uint64(a.p.MaxBlockRange)
+		log.Warn().Msgf("Inc load is lagging, running incremental at %d, %d blocks", refreshBlock, newBlockRange)
+		synchToBlockHeight, _ = a.dataLoader.RunIncAddressesLoader(addressChan, refreshBlock, currentBlockHeight)
+		a.DB.UpdateLoadedBlockHeight(synchToBlockHeight)
 	}
 }
 

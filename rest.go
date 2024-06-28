@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"example/flow-key-indexer/pkg/pg"
+	"example/flow-key-indexer/utils"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -50,7 +51,8 @@ func (rest *Rest) getStatus(w http.ResponseWriter, r *http.Request) {
 func (rest *Rest) getKey(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r) // get params
 	publicKey := params["id"]
-	value, err := rest.DB.GetAccountsByPublicKey(publicKey)
+	key := utils.Strip0xPrefix(publicKey)
+	value, err := rest.DB.GetAccountsByPublicKey(key)
 
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, err.Error())

@@ -23,30 +23,19 @@ import (
 	_ "embed"
 	"example/flow-key-indexer/model"
 	"example/flow-key-indexer/pkg/pg"
+	"example/flow-key-indexer/utils"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
+	flowclient "github.com/onflow/flow-go-sdk/client"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc"
+	// Add this line to import the utils package
 )
-
-type DataLoader struct {
-	DB             pg.Store
-	config         Params
-	fa             FlowAdapter
-	incAddressChan [][]flow.Address
-}
-
-type PublicKeyActions struct {
-	removes   []PublicKeyEvent
-	addresses []string
-}
-
-type PublicKeyEvent struct {
-	publicKey string
-	account   string
-}
 
 type PublicKey struct {
 	hashAlgorithm      uint8
@@ -58,46 +47,11 @@ type PublicKey struct {
 	account            string
 }
 
-//go:embed cadence/get_keys.cdc
-var GetAccountKeys string
-
-type GetAccountKeysHandler func(keys []model.PublicKeyAccountIndexer, height uint64, err error)
-
-func (s *DataLoader) NewGetAccountKeysHandler(handler GetAccountKeysHandler) func(value cadence.Value, height uint64) {
-	return func(value cadence.Value, height uint64) {
-		allAccountsKeys := []model.PublicKeyAccountIndexer{}
-		for _, allKeys := range value.(cadence.Dictionary).Pairs {
-			address := allKeys.Key.(cadence.Address)
-			counter := 0
-			keys := []model.PublicKeyAccountIndexer{}
-			for _, nameCodePair := range allKeys.Value.(cadence.Dictionary).Pairs {
-				rawStruct := nameCodePair.Value.(cadence.Struct)
-				data := PublicKey{
-					hashAlgorithm:      rawStruct.Fields[0].ToGoValue().(uint8),
-					isRevoked:          rawStruct.Fields[1].ToGoValue().(bool),
-					weight:             rawStruct.Fields[2].ToGoValue().(uint64),
-					publicKey:          rawStruct.Fields[3].ToGoValue().(string),
-					keyIndex:           rawStruct.Fields[4].ToGoValue().(*big.Int),
-					signatureAlgorithm: rawStruct.Fields[5].ToGoValue().(uint8),
-					account:            address.String(),
-				}
-				item := model.PublicKeyAccountIndexer{
-					Account:   data.account,
-					KeyId:     int(data.keyIndex.Int64()),
-					PublicKey: data.publicKey,
-					Weight:    int(data.weight / 100000000),
-				}
-				keys = append(keys, item)
-				counter = counter + 1
-			}
-			allAccountsKeys = append(allAccountsKeys, keys...)
-			if counter >= s.config.MaxAcctKeys {
-				log.Debug().Msgf("Account max keys reached %s %d", address.String(), s.config.MaxAcctKeys)
-			}
-		}
-
-		handler(allAccountsKeys, height, nil)
-	}
+type DataLoader struct {
+	DB             pg.Store
+	config         Params
+	fa             FlowAdapter
+	incAddressChan [][]flow.Address
 }
 
 func NewDataLoader(DB pg.Store, fa FlowAdapter, p Params) *DataLoader {
@@ -109,88 +63,67 @@ func NewDataLoader(DB pg.Store, fa FlowAdapter, p Params) *DataLoader {
 	return &s
 }
 
-func (s *DataLoader) SetupAddressLoader(addressChan chan []flow.Address) (uint64, error) {
-	config := DefaultConfig
-	config.FlowAccessNodeURLs = s.config.AllFlowUrls
-	config.ChainID = flow.ChainID(s.config.ChainId)
-	config.BatchSize = s.config.BatchSize
-	config.ignoreZeroWeight = s.config.IgnoreZeroWeight
-	config.ignoreRevoked = s.config.IgnoreRevoked
-	config.maxAcctKeys = s.config.MaxAcctKeys
+//go:embed cadence/get_keys.cdc
+var GetAccountKeys string
 
-	blockHeight, err := RunAddressCadenceScript(
-		context.Background(),
-		log.Logger,
-		config,
-		GetAccountKeys,
-		s.NewGetAccountKeysHandler(s.ProcessAddressDataAdditions),
-		addressChan,
-	)
-	return blockHeight, err
-}
+func ProcessAddressWithScript(
+	ctx context.Context,
+	conf Params,
+	addresses []flow.Address,
+	log zerolog.Logger,
+	flowClient *flowclient.Client,
+	fetchSlowDown int,
+	currentBlockHeight uint64,
+) ([]model.PublicKeyAccountIndexer, error) {
+	script := []byte(GetAccountKeys)
+	accountsCadenceValues := convertAddresses(addresses)
+	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.MaxAcctKeys), cadence.NewBool(conf.IgnoreZeroWeight), cadence.NewBool(conf.IgnoreRevoked)}
+	result, err := retryScriptUntilSuccess(ctx, log, currentBlockHeight, script, arguments, flowClient, time.Duration(fetchSlowDown)*time.Millisecond)
 
-func (s *DataLoader) RunAllAddressesLoader(addressChan chan []flow.Address) error {
-	config := DefaultConfig
-	config.FlowAccessNodeURLs = s.config.AllFlowUrls
-	config.ChainID = flow.ChainID(s.config.ChainId)
-	config.BatchSize = s.config.BatchSize
-	config.ignoreZeroWeight = s.config.IgnoreZeroWeight
-	config.ignoreRevoked = s.config.IgnoreRevoked
-	config.maxAcctKeys = s.config.MaxAcctKeys
-	config.Pause = time.Duration(s.config.FetchSlowDownMs * int(time.Millisecond))
-
-	s.DB.UpdateUpdatedBlockHeight(0) // indicates bulk loading
-	height, err := GetAllAddresses(context.Background(), log.Logger, config, addressChan)
-	// save height for next load time
-	s.DB.UpdateUpdatedBlockHeight(height)
-	return err
-}
-
-func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, isLoading bool, blockHeight uint64) (int, bool) {
-	pkAddrActions, currBlockHeight, restart, err := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, s.config.MaxBlockRange, s.config.WaitNumBlocks)
 	if err != nil {
-		return 0, restart
+		log.Error().Err(err).Msg("Script: Failed to get account keys")
+		return nil, err
 	}
 
-	s.DB.UpdateLoadingBlockHeight(currBlockHeight)
+	keys, err := getAccountKeys(result)
+	if err != nil {
+		log.Error().Err(err).Msg("Script: Failed to get account keys")
+	}
+	return keys, err
+}
+
+func convertAddresses(addresses []flow.Address) []cadence.Value {
+	var accounts []cadence.Value
+	for _, address := range addresses {
+		accounts = append(accounts, cadence.Address(address))
+	}
+	return accounts
+}
+
+func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, blockHeight uint64, endBlockHeight uint64) (uint64, error) {
+	accountAddresses, synchedBlockHeight, err := s.fa.GetAddressesFromBlockEvents(s.config.AllFlowUrls, blockHeight, endBlockHeight)
+	if err != nil {
+		return blockHeight, err
+	}
+
 	var addresses []flow.Address
 	// filter out empty Public keys and send account addresses to get processed
-	for _, addrPkAction := range pkAddrActions {
-		for _, address := range addrPkAction.addresses {
-			// reload these addresses to get all account data
-			addresses = append(addresses, flow.HexToAddress(address))
-		}
-		for _, removal := range addrPkAction.removes {
-			if removal.publicKey != "" {
-				log.Debug().Msgf("removing %v %v", removal.publicKey, removal.account)
-				s.DB.RemovePublicKeyInfo(removal.publicKey, removal.account)
-			}
-		}
+	// debug log num addresses found
+	for _, accountAddr := range accountAddresses {
+		s.DB.RemoveAccountForReloading(utils.Add0xPrefix(accountAddr))
+		addresses = append(addresses, flow.HexToAddress(accountAddr))
 	}
 
 	if len(addresses) > 0 {
-		// processing account key address
-		addressChan <- unique(addresses)
+		addrs := unique(addresses)
+		log.Debug().Msgf("Inc addressChan: Before adding to channel, %d addresses, at %v", len(addresses), synchedBlockHeight)
+
+		addressChan <- addrs
+
+		log.Debug().Msgf("Inc addressChan: After found %d addresses, at %v", len(addresses), synchedBlockHeight)
 	}
 
-	updatedToBlock, _ := s.DB.GetUpdatedBlockHeight()
-	if updatedToBlock != 0 {
-		// bulk loading is done, update loaded block height
-		s.DB.UpdateUpdatedBlockHeight(currBlockHeight)
-	}
-	// cache distict count for quick 'status' response
-	s.DB.UpdateDistinctCount()
-	return len(addresses), restart
-}
-
-func (s *DataLoader) ProcessAddressDataAdditions(keys []model.PublicKeyAccountIndexer, height uint64, err error) {
-	if err != nil {
-		log.Err(err).Msgf("failed to get account key info")
-		return
-	}
-
-	// send to DB
-	s.DB.InsertPublicKeyAccounts(keys)
+	return synchedBlockHeight, err
 }
 
 func unique(addresses []flow.Address) []flow.Address {
@@ -203,4 +136,93 @@ func unique(addresses []flow.Address) []flow.Address {
 		}
 	}
 	return list
+}
+
+// retries running the cadence script until we get a successful response back,
+// returning an array, along with a boolean representing whether we can continue
+// or are finished processing.
+func retryScriptUntilSuccess(
+	ctx context.Context,
+	log zerolog.Logger,
+	blockHeight uint64,
+	script []byte,
+	arguments []cadence.Value,
+	flowClient *flowclient.Client,
+	pause time.Duration,
+) (cadence.Value, error) {
+	var err error
+	var result cadence.Value
+	attempts := 0
+	maxAttemps := 5
+
+	for {
+		result, err = flowClient.ExecuteScriptAtBlockHeight(
+			ctx,
+			blockHeight,
+			script,
+			arguments,
+			grpc.MaxCallRecvMsgSize(16*1024*1024),
+		)
+		if err == nil {
+			break
+		}
+		attempts = attempts + 1
+		log.Error().Err(err).Msgf("Script: %d attempt", attempts)
+
+		if attempts > maxAttemps || strings.Contains(err.Error(), "connection termination") {
+			// give up and don't retry
+			break
+		}
+
+		time.Sleep(pause)
+		block, _ := flowClient.GetLatestBlockHeader(ctx, true)
+		blockHeight = block.Height
+
+		if strings.Contains(err.Error(), "ResourceExhausted") {
+			// really slow down when node is ResourceExhausted
+			continue
+		}
+		if strings.Contains(err.Error(), "InvalidArgument") {
+			// really slow down when node is ResourceExhausted
+			continue
+		}
+		if strings.Contains(err.Error(), "DeadlineExceeded") {
+			// pass error back to caller, script ran too long
+			break
+		}
+	}
+
+	return result, err
+}
+
+func getAccountKeys(value cadence.Value) ([]model.PublicKeyAccountIndexer, error) {
+	allAccountsKeys := []model.PublicKeyAccountIndexer{}
+	for _, allKeys := range value.(cadence.Dictionary).Pairs {
+		address := allKeys.Key.(cadence.Address)
+		counter := 0
+		keys := []model.PublicKeyAccountIndexer{}
+		for _, nameCodePair := range allKeys.Value.(cadence.Dictionary).Pairs {
+			rawStruct := nameCodePair.Value.(cadence.Struct)
+			data := PublicKey{
+				hashAlgorithm:      rawStruct.Fields[0].ToGoValue().(uint8),
+				isRevoked:          rawStruct.Fields[1].ToGoValue().(bool),
+				weight:             rawStruct.Fields[2].ToGoValue().(uint64),
+				publicKey:          rawStruct.Fields[3].ToGoValue().(string),
+				keyIndex:           rawStruct.Fields[4].ToGoValue().(*big.Int),
+				signatureAlgorithm: rawStruct.Fields[5].ToGoValue().(uint8),
+				account:            address.String(),
+			}
+			item := model.PublicKeyAccountIndexer{
+				Account:   data.account,
+				KeyId:     int(data.keyIndex.Int64()),
+				PublicKey: data.publicKey,
+				Weight:    int(data.weight / 100000000),
+			}
+			keys = append(keys, item)
+			counter = counter + 1
+		}
+		allAccountsKeys = append(allAccountsKeys, keys...)
+	}
+
+	return allAccountsKeys, nil
 }

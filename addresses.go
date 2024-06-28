@@ -27,6 +27,7 @@ import (
 	"github.com/onflow/flow-go-sdk"
 	"github.com/onflow/flow-go-sdk/client"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 // AddressProvider Is used to get all the addresses that exists at a certain referenceBlockId
@@ -56,6 +57,7 @@ func InitAddressProvider(
 	referenceBlockID flow.Identifier,
 	client *client.Client,
 	pause time.Duration,
+	startIndex uint,
 ) (*AddressProvider, error) {
 	ap := &AddressProvider{
 		log:              log,
@@ -64,16 +66,14 @@ func InitAddressProvider(
 		currentIndex:     1,
 	}
 
-	last := time.Now()
 	searchStep := 0
 	addressExistsAtIndex := func(index uint) (bool, error) {
-		if time.Since(last) < pause {
-			time.Sleep(pause)
-		}
-		last = time.Now()
+		time.Sleep(pause)
 
 		searchStep += 1
 		address := ap.indexToAddress(index)
+
+		log.Debug().Str("Bulk address", address.Hex()).Msgf("Searching last address %d", index)
 		// This script will fail with endOfAccountsError
 		// if the account (address at given index) doesn't exist yet
 		_, err := client.ExecuteScriptAtBlockID(
@@ -82,6 +82,7 @@ func InitAddressProvider(
 			[]byte(accountStorageUsageScript),
 			[]cadence.Value{cadence.NewAddress(address)},
 		)
+
 		if err == nil {
 			return true, nil
 		}
@@ -95,13 +96,13 @@ func InitAddressProvider(
 	}
 
 	// We assume address #2 exists
-	lastAddressIndex, err := ap.getLastAddress(1, 2, true, addressExistsAtIndex)
+	lastAddressIndex, err := ap.getLastAddress(startIndex, startIndex*2, false, addressExistsAtIndex)
 	if err != nil {
 		return nil, err
 	}
 
 	log.Info().
-		Str("lastAddress", ap.indexToAddress(lastAddressIndex).Hex()).
+		Str("Bulk lastAddress", ap.indexToAddress(lastAddressIndex).Hex()).
 		Uint("numAccounts", lastAddressIndex).
 		Int("stepsNeeded", searchStep).
 		Msg("")
@@ -120,7 +121,6 @@ func InitAddressProvider(
 // 3. (4,8): check address (8 - 4) / 2 = 6  address exists so next pair is (6,8)
 // 4. (6,8): check address 7 address exists so next pair is (7,8)
 // 5. (7,8): check address (8 - 7) / 2 = 7 ... ok already checked so this is the last existing address
-//
 func (p *AddressProvider) getLastAddress(
 	lowerIndex uint,
 	upperIndex uint,
@@ -169,7 +169,7 @@ func (p *AddressProvider) GetNextAddress() (address flow.Address, isOutOfBounds 
 
 	// Give some progress information every so often
 	if p.currentIndex%(p.lastAddressIndex/10) == 0 {
-		p.log.Info().Msgf("Processed %v %% accounts", p.currentIndex/(p.lastAddressIndex/10)*10)
+		p.log.Debug().Msgf("Bulk Processed %v %% accounts", p.currentIndex/(p.lastAddressIndex/10)*10)
 	}
 
 	if p.currentIndex > p.lastAddressIndex {
@@ -189,65 +189,42 @@ var brokenAddresses = map[flow.Address]struct{}{
 }
 
 func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Address, batchSize int) {
-	var done bool
+	var allAddresses []flow.Address
+
 	for {
-		addresses := make([]flow.Address, 0)
-
-		for i := 0; i < batchSize; i++ {
-			addr, oob := p.GetNextAddress()
-			if oob {
-				// Out of bounds, there are no more addresses
-				done = true
-				break
-			}
-
-			// Skip address if known broken
-			if _, ok := brokenAddresses[addr]; ok {
-				i--
-				continue
-			}
-
-			addresses = append(addresses, addr)
-		}
-		if len(addresses) > 0 {
-			addressChan <- addresses
-		}
-
-		if done {
+		addr, oob := p.GetNextAddress()
+		if oob {
+			// Out of bounds, there are no more addresses
 			break
 		}
+
+		// Skip address if known broken
+		if _, ok := brokenAddresses[addr]; ok {
+			continue
+		}
+
+		allAddresses = append(allAddresses, addr)
 	}
-}
 
-func BatchAddresses(addresses []flow.Address, batchSize int) [][]flow.Address {
-	var done bool
-	var batches [][]flow.Address
-	for {
-		addrs := make([]flow.Address, 0)
-
-		for i := 0; i < batchSize; i++ {
-			if i >= len(addresses) {
-				// Out of bounds, there are no more addresses
-				done = true
-				break
-			}
-			addr := addresses[i]
-			// Skip address if known broken
-			if _, ok := brokenAddresses[addr]; ok {
-				i--
-				continue
-			}
-			addrs = append(addrs, addr)
-		}
-		if len(addresses) > 0 {
-			batches = append(batches, addrs)
-		}
-
-		if done {
-			break
-		}
+	// Reverse the order of allAddresses
+	for i, j := 0, len(allAddresses)-1; i < j; i, j = i+1, j-1 {
+		allAddresses[i], allAddresses[j] = allAddresses[j], allAddresses[i]
 	}
-	return batches
+
+	log.Info().Msgf("Bulk Found %v addresses, batches %d", len(allAddresses), len(allAddresses)/batchSize)
+	// Process and send addresses in batches
+	for i := 0; i < len(allAddresses); i += batchSize {
+		end := i + batchSize
+		if end > len(allAddresses) {
+			end = len(allAddresses)
+		}
+		batch := allAddresses[i:end]
+		if len(batch) == 0 {
+			log.Warn().Msgf("Batch is empty, end %d", end)
+			continue
+		}
+		addressChan <- batch
+	}
 }
 
 func (p *AddressProvider) LastAddress() flow.Address {
