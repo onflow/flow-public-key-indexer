@@ -23,6 +23,7 @@ import (
 	_ "embed"
 	"example/flow-key-indexer/model"
 	"example/flow-key-indexer/pkg/pg"
+	"example/flow-key-indexer/utils"
 	"math/big"
 	"strings"
 	"time"
@@ -33,6 +34,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
+	// Add this line to import the utils package
 )
 
 type PublicKey struct {
@@ -108,7 +110,7 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, bloc
 	// filter out empty Public keys and send account addresses to get processed
 	// debug log num addresses found
 	for _, accountAddr := range accountAddresses {
-		s.DB.RemoveAccountForReloading(add0xPrefix(accountAddr))
+		s.DB.RemoveAccountForReloading(utils.Add0xPrefix(accountAddr))
 		addresses = append(addresses, flow.HexToAddress(accountAddr))
 	}
 

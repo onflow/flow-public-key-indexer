@@ -3,6 +3,7 @@ package pg
 import (
 	"context"
 	"example/flow-key-indexer/model"
+	"example/flow-key-indexer/utils"
 
 	_ "github.com/golang-migrate/migrate/database/postgres"
 	_ "github.com/golang-migrate/migrate/source/file"
@@ -224,8 +225,9 @@ func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer,
 	accts := []model.AccountKey{}
 	// consolidate account data
 	for _, pk := range publickeys {
+		a := utils.FixAccountLength(pk.Account)
 		acct := model.AccountKey{
-			Account: pk.Account,
+			Account: a,
 			KeyId:   pk.KeyId,
 			Weight:  pk.Weight,
 		}

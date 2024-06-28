@@ -22,6 +22,7 @@ import (
 	"context"
 	_ "embed"
 	"example/flow-key-indexer/model"
+	"example/flow-key-indexer/utils"
 	"fmt"
 	"time"
 
@@ -207,7 +208,7 @@ func processAddresses(
 	log.Info().Msgf("Batch API Processing addresses: %v", len(accountAddresses))
 
 	for _, addr := range accountAddresses {
-		addrStr := add0xPrefix(addr.String())
+		addrStr := utils.Add0xPrefix(addr.String())
 		if _, ok := ignoreAccounts[addrStr]; ok {
 			continue
 		}
@@ -235,7 +236,7 @@ func processAddresses(
 			// Save account with blank public key to avoid querying it again
 			keys = append(keys, model.PublicKeyAccountIndexer{
 				PublicKey: "blank",
-				Account:   add0xPrefix(addrStr),
+				Account:   utils.Add0xPrefix(addrStr),
 				Weight:    0,
 				KeyId:     0,
 			})
@@ -243,8 +244,8 @@ func processAddresses(
 			for _, key := range acct.Keys {
 				// Clean up the public key, remove the 0x prefix
 				keys = append(keys, model.PublicKeyAccountIndexer{
-					PublicKey: strip0xPrefix(key.PublicKey.String()),
-					Account:   add0xPrefix(addrStr),
+					PublicKey: utils.Strip0xPrefix(key.PublicKey.String()),
+					Account:   utils.Add0xPrefix(addrStr),
 					Weight:    key.Weight,
 					KeyId:     key.Index,
 				})
