@@ -45,7 +45,7 @@ const failedToGetStoragedUsed = "get storage used failed: failed to get storage 
 
 const accountStorageUsageScript = `
  access(all) fun main(address: Address): UInt64 {
-   return getAccount(address).storageUsed
+   return getAccount(address).storage.used
  }
  `
 
