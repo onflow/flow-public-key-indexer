@@ -44,7 +44,7 @@ const endOfAccountsError = "storage used is not initialized or not initialized c
 const failedToGetStoragedUsed = "get storage used failed: failed to get storage used"
 
 const accountStorageUsageScript = `
- pub fun main(address: Address): UInt64 {
+ access(all) fun main(address: Address): UInt64 {
    return getAccount(address).storageUsed
  }
  `
