@@ -1,11 +1,11 @@
 
-pub struct _AccountKey {
-    pub var hashAlgorithm: UInt8
-    pub var isRevoked: Bool
-    pub var weight: UFix64
-    pub var publicKey: String
-    pub var keyIndex: Int
-    pub var signatureAlgorithm: UInt8
+access(all) struct _AccountKey {
+    access(all) var hashAlgorithm: UInt8
+    access(all) var isRevoked: Bool
+    access(all) var weight: UFix64
+    access(all) var publicKey: String
+    access(all) var keyIndex: Int
+    access(all) var signatureAlgorithm: UInt8
     
     init(acctKey: AccountKey) {
         self.hashAlgorithm = acctKey.hashAlgorithm.rawValue
@@ -17,7 +17,7 @@ pub struct _AccountKey {
     }
 }
 
-pub fun main(addresses: [Address], keyCap: Int, ignoreZeroWeight: Bool, ignoreRevoked: Bool): {Address: AnyStruct} {
+access(all) fun main(addresses: [Address], keyCap: Int, ignoreZeroWeight: Bool, ignoreRevoked: Bool): {Address: AnyStruct} {
     let allKeys: {Address: AnyStruct} = {}
 
     for address in addresses {
