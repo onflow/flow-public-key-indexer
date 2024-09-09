@@ -165,3 +165,25 @@ func ToURL(port int, ssl bool, username, password, db, host string) string {
 		strconv.Itoa(port) + "/" +
 		url.PathEscape(db) + mode
 }
+
+// MigrateDatabase adds new columns to the publickeyindexer table
+func (d *Database) MigrateDatabase() error {
+	log.Info().Msg("Migrating database: adding sigAlgo and hashAlgo columns")
+
+	addSigAlgoColumn := `ALTER TABLE publickeyindexer ADD COLUMN IF NOT EXISTS sigAlgo int;`
+	addHashAlgoColumn := `ALTER TABLE publickeyindexer ADD COLUMN IF NOT EXISTS hashAlgo int;`
+
+	_, cancelfunc := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelfunc()
+
+	if err := d.DB.Exec(addSigAlgoColumn).Error; err != nil {
+		return fmt.Errorf("failed to add sigAlgo column: %w", err)
+	}
+
+	if err := d.DB.Exec(addHashAlgoColumn).Error; err != nil {
+		return fmt.Errorf("failed to add hashAlgo column: %w", err)
+	}
+
+	log.Info().Msg("Database migration completed successfully")
+	return nil
+}

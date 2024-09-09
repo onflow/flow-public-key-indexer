@@ -35,7 +35,19 @@ func (s *Store) Start(purgeOnStart bool) error {
 	}
 
 	err = s.db.InitDatabase(purgeOnStart)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Call MigrateDatabase after initializing the database
+	err = s.db.MigrateDatabase()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to migrate database")
+		return err
+	}
+
+	s.logger.Info().Msg("Database migration completed successfully")
+	return nil
 }
 
 func (s Store) Stats() model.PublicKeyStatus {
@@ -75,28 +87,6 @@ func (s Store) InsertPublicKeyAccounts(ctx context.Context, publicKeys []model.P
 	}
 
 	return nil
-}
-
-func (s Store) AddressesNotInDatabase(addresses []string) ([]string, error) {
-	var existingAddresses []string
-	err := s.db.Model(&model.PublicKeyAccountIndexer{}).Where("account IN ?", addresses).Pluck("account", &existingAddresses).Error
-	if err != nil {
-		log.Debug().Err(err).Msg("Error checking if accounts exist")
-		return nil, err
-	}
-	addressMap := make(map[string]bool)
-	for _, addr := range existingAddresses {
-		addressMap[addr] = true
-	}
-
-	var nonExistingAddresses []string
-	for _, addr := range addresses {
-		if !addressMap[addr] {
-			nonExistingAddresses = append(nonExistingAddresses, addr)
-		}
-	}
-	log.Info().Msgf("DB Found %v addresses not in database", len(nonExistingAddresses))
-	return nonExistingAddresses, nil
 }
 
 func (s Store) GetUniqueAddresses() (<-chan string, error) {
@@ -227,11 +217,14 @@ func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer,
 	for _, pk := range publickeys {
 		a := utils.FixAccountLength(pk.Account)
 		acct := model.AccountKey{
-			Account: a,
-			KeyId:   pk.KeyId,
-			Weight:  pk.Weight,
+			Account:  a,
+			KeyId:    pk.KeyId,
+			Weight:   pk.Weight,
+			SigAlgo:  pk.SigAlgo,
+			HashAlgo: pk.HashAlgo,
 		}
 		accts = append(accts, acct)
+
 	}
 	publicKeyAccounts := model.PublicKeyIndexer{
 		PublicKey: publicKey,

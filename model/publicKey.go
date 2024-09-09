@@ -1,9 +1,11 @@
 package model
 
 type AccountKey struct {
-	Account string `json:"address"`
-	KeyId   int    `json:"keyId"`
-	Weight  int    `json:"weight"`
+	Account  string `json:"address"`
+	KeyId    int    `json:"keyId"`
+	Weight   int    `json:"weight"`
+	SigAlgo  int    `json:"sigAlgo"`
+	HashAlgo int    `json:"hashAlgo"`
 }
 
 type PublicKeyIndexer struct {
@@ -16,6 +18,8 @@ type PublicKeyAccountIndexer struct {
 	Account   string `json:"account" gorm:"column:account"`
 	KeyId     int    `json:"keyId" gorm:"column:keyid"`
 	Weight    int    `json:"weight" gorm:"column:weight"`
+	SigAlgo   int    `json:"sigAlgo" gorm:"column:sigalgo"`
+	HashAlgo  int    `json:"hashAlgo" gorm:"column:hashalgo"`
 }
 
 func (PublicKeyAccountIndexer) TableName() string {

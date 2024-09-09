@@ -217,6 +217,8 @@ func getAccountKeys(value cadence.Value) ([]model.PublicKeyAccountIndexer, error
 				KeyId:     int(data.keyIndex.Int64()),
 				PublicKey: data.publicKey,
 				Weight:    int(data.weight / 100000000),
+				SigAlgo:   int(data.signatureAlgorithm),
+				HashAlgo:  int(data.hashAlgorithm),
 			}
 			keys = append(keys, item)
 			counter = counter + 1
