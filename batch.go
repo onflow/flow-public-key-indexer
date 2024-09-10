@@ -178,12 +178,12 @@ func ProcessAddressChannels(
 					currentBlock, err := client.GetLatestBlockHeader(ctx, true)
 					if err != nil {
 						log.Error().Err(err).Msg("Batch Bulk Low-priority Could not get current block height from default flow client")
-						return
+						continue
 					}
 					accountKeys, err := ProcessAddressWithScript(ctx, config, accountAddresses, log, client, fetchSlowdown, currentBlock.Height)
 					if err != nil {
 						log.Error().Err(err).Msgf("Batch Bulk Low-priority Failed Script Load, w(%d) addresses with script", workerID)
-						return
+						continue
 					}
 					duration := time.Since(start)
 					log.Info().Msgf("Batch Bulk Low-priority Finished Script Load, duration(%f) w(%d) %v, block %d, q(%d)", duration.Seconds(), workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
