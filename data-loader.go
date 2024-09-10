@@ -29,10 +29,9 @@ import (
 
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
-	flowclient "github.com/onflow/flow-go-sdk/client"
+	"github.com/onflow/flow-go-sdk/access"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"google.golang.org/grpc"
 	// Add this line to import the utils package
 )
 
@@ -70,7 +69,7 @@ func ProcessAddressWithScript(
 	conf Params,
 	addresses []flow.Address,
 	log zerolog.Logger,
-	flowClient *flowclient.Client,
+	flowClient access.Client,
 	fetchSlowDown int,
 	currentBlockHeight uint64,
 ) ([]model.PublicKeyAccountIndexer, error) {
@@ -148,7 +147,7 @@ func retryScriptUntilSuccess(
 	blockHeight uint64,
 	script []byte,
 	arguments []cadence.Value,
-	flowClient *flowclient.Client,
+	flowClient access.Client,
 	pause time.Duration,
 ) (cadence.Value, error) {
 	var err error
@@ -162,7 +161,6 @@ func retryScriptUntilSuccess(
 			blockHeight,
 			script,
 			arguments,
-			grpc.MaxCallRecvMsgSize(16*1024*1024),
 		)
 
 		if err == nil {
@@ -209,13 +207,13 @@ func getAccountKeys(value cadence.Value) ([]model.PublicKeyAccountIndexer, error
 			data := PublicKey{
 				hashAlgorithm:      uint8(fields["hashAlgorithm"].(cadence.UInt8)),
 				isRevoked:          bool(fields["isRevoked"].(cadence.Bool)),
-				weight:             uint64(fields["weight"].(cadence.UInt64)),
+				weight:             uint64(fields["weight"].(cadence.UFix64)),
 				publicKey:          string(fields["publicKey"].(cadence.String)),
 				keyIndex:           int(fields["keyIndex"].(cadence.Int).Int()),
 				signatureAlgorithm: uint8(fields["signatureAlgorithm"].(cadence.UInt8)),
 				account:            address.String(),
 			}
-			log.Debug().Msgf("Processing key: %v", data)
+			log.Debug().Msgf("Processing key: %v", data.publicKey)
 			item := model.PublicKeyAccountIndexer{
 				Account:   data.account,
 				KeyId:     int(data.keyIndex),

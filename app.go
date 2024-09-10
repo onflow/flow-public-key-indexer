@@ -183,11 +183,10 @@ func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 	ctx := context.Background()
 	startIndex := uint(a.p.SyncDataStartIndex)
 	pause := time.Duration(a.p.FetchSlowDownMs) * time.Millisecond
-	wrappedClient := &ClientWrapper{a.flowClient.Client}
 	// continuously run the bulk load process
 	for {
 		start := time.Now()
-		currentBlock, err := wrappedClient.GetLatestBlockHeader(ctx, true)
+		currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(ctx, true)
 		if err != nil {
 			log.Error().Err(err).Msg("Bulk Could not get current block height from default flow client")
 		}

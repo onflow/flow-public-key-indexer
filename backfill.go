@@ -70,7 +70,7 @@ func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter) error {
 		if len(records) == 0 {
 			break // No more records to process
 		}
-
+		log.Debug().Msgf("Processing %d records", len(records))
 		// Process the batch
 		updatedRecords, err := processRecords(records, flowClient)
 		if err != nil {

@@ -26,19 +26,24 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/grpc/credentials/insecure"
+
 	"github.com/onflow/flow-go-sdk"
-	"github.com/onflow/flow-go-sdk/client"
-	flowclient "github.com/onflow/flow-go-sdk/client"
+	"github.com/onflow/flow-go-sdk/access"
+	"github.com/onflow/flow-go-sdk/access/grpc"
 	"github.com/rs/zerolog"
-	"google.golang.org/grpc"
+	grpcOpts "google.golang.org/grpc"
 )
 
 // getFlowClient initializes and returns a flow client
-func getFlowClient(flowClientUrl string) *flowclient.Client {
-	flowClient, err := flowclient.New(flowClientUrl, grpc.WithInsecure())
+func getFlowClient(flowClientUrl string) *grpc.BaseClient {
+	flowClient, err := grpc.NewBaseClient(flowClientUrl,
+		grpcOpts.WithTransportCredentials(insecure.NewCredentials()),
+	)
 	if err != nil {
 		panic(err)
 	}
+
 	return flowClient
 }
 
@@ -64,7 +69,7 @@ var ignoreAccounts = map[string]bool{
 func ProcessAddressChannels(
 	ctx context.Context,
 	log zerolog.Logger,
-	client *client.Client,
+	client access.Client,
 	highPriorityChan chan []flow.Address,
 	lowPriorityChan chan []flow.Address,
 	insertionHandler func(context.Context, []model.PublicKeyAccountIndexer) error,
@@ -197,7 +202,7 @@ func processAddresses(
 	accountAddresses []flow.Address,
 	ctx context.Context,
 	log zerolog.Logger,
-	client *flowclient.Client,
+	client access.Client,
 	resultsChan chan []model.PublicKeyAccountIndexer,
 	fetchSlowdown int, insertHandler func(context.Context, []model.PublicKeyAccountIndexer) error) {
 

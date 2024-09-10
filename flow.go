@@ -7,14 +7,13 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/onflow/cadence"
-	jsoncdc "github.com/onflow/cadence/encoding/json"
 	"github.com/onflow/flow-go-sdk"
-	"github.com/onflow/flow-go-sdk/client"
-	"google.golang.org/grpc"
+	"github.com/onflow/flow-go-sdk/access"
+	"github.com/onflow/flow-go-sdk/access/grpc"
 )
 
 type FlowAdapter struct {
-	Client  *client.Client
+	Client  access.Client
 	Context context.Context
 	URL     string
 }
@@ -24,15 +23,9 @@ func NewFlowClient(url string) *FlowAdapter {
 	adapter.Context = context.Background()
 	// any reason to pass this as an arg instead?
 	adapter.URL = url
-	opts := []grpc.DialOption{
-		grpc.WithInsecure(),
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(20 * 1024 * 1024), // 16 MB
-		),
-		// grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)), // Optional: Use compression
-	}
+
 	// create flow client
-	FlowClient, err := client.New(strings.TrimSpace(adapter.URL), opts...)
+	FlowClient, err := grpc.NewClient(strings.TrimSpace(adapter.URL))
 	if err != nil {
 		log.Panic().Msgf("failed to connect to %s", adapter.URL)
 	}
@@ -56,10 +49,10 @@ func (fa *FlowAdapter) GetCurrentBlockHeight() (uint64, error) {
 func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlockHeight uint64, endBlockHeight uint64) ([]string, uint64, error) {
 	eventTypes := []string{"flow.AccountKeyAdded", "flow.AccountKeyRemoved"}
 
-	var queryEvents []client.EventRangeQuery
+	var queryEvents []grpc.EventRangeQuery
 
 	for _, eventType := range eventTypes {
-		queryEvents = append(queryEvents, client.EventRangeQuery{
+		queryEvents = append(queryEvents, grpc.EventRangeQuery{
 			Type:        eventType,
 			StartHeight: startBlockHeight,
 			EndHeight:   endBlockHeight,
@@ -75,7 +68,7 @@ func (fa *FlowAdapter) GetAddressesFromBlockEvents(flowUrls []string, startBlock
 	return addrs, endBlockHeight, nil
 }
 
-func RunAddressQuery(client *client.Client, context context.Context, query client.EventRangeQuery) ([]string, error) {
+func RunAddressQuery(client *grpc.BaseClient, context context.Context, query grpc.EventRangeQuery) ([]string, error) {
 	var allAccountAddresses []string
 	events, err := client.GetEventsForHeightRange(context, query)
 	log.Debug().Msgf("events %v", len(events))
@@ -85,31 +78,17 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 	}
 	for _, event := range events {
 		for _, evt := range event.Events {
-			var pkAddr string
-			payload, err := jsoncdc.Decode(nil, evt.Payload)
-			if err != nil {
-				log.Warn().Msgf("Could not decode payload %v %v", evt.Type, err.Error())
-				continue
-			}
-			addEvent, ok := payload.(cadence.Event)
-			if !ok {
-				log.Warn().Msgf("could not decode event payload")
-				continue
-			}
 			var address string
-			if evt.Type == "flow.AccountKeyAdded" {
-				address = addEvent.FieldsMappedByName()["address"].(cadence.Address).String()
+			if evt.Type == "flow.AccountKeyAdded" || evt.Type == "flow.AccountKeyRemoved" {
+				address = evt.Value.FieldsMappedByName()["address"].(cadence.Address).String()
 				allAccountAddresses = append(allAccountAddresses, address)
-			}
-			if evt.Type == "flow.AccountKeyRemoved" {
-				allAccountAddresses = append(allAccountAddresses, pkAddr)
 			}
 		}
 	}
 	return allAccountAddresses, nil
 }
 
-func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []client.EventRangeQuery) ([]string, error) {
+func (fa *FlowAdapter) GetEventAddresses(flowUrls []string, queries []grpc.EventRangeQuery) ([]string, error) {
 	allPkAddrs := []string{} // Initialize the slice directly
 
 	// Use the first URL to create a single client
