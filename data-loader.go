@@ -75,7 +75,6 @@ func ProcessAddressWithScript(
 ) ([]model.PublicKeyAccountIndexer, error) {
 	script := []byte(GetAccountKeys)
 	accountsCadenceValues := convertAddresses(addresses)
-	log.Debug().Msgf("Processing %d addresses", len(addresses))
 	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.MaxAcctKeys), cadence.NewBool(conf.IgnoreZeroWeight), cadence.NewBool(conf.IgnoreRevoked)}
 	result, err := retryScriptUntilSuccess(ctx, log, currentBlockHeight, script, arguments, flowClient, time.Duration(fetchSlowDown)*time.Millisecond)
 
@@ -84,8 +83,8 @@ func ProcessAddressWithScript(
 		return nil, err
 	}
 
-	keys, err := getAccountKeys(result)
-	log.Debug().Msgf("Account Keys Found: %v, %d, %v", len(keys) > 0, len(keys), result)
+	keys, err := getAccountKeysFromCadence(result)
+	log.Debug().Msgf("Account Keys Found: %v, %d", len(keys) > 0, len(keys))
 	if err != nil {
 		log.Error().Err(err).Msg("Script: Failed to get account keys")
 	}
@@ -195,7 +194,7 @@ func retryScriptUntilSuccess(
 	return result, err
 }
 
-func getAccountKeys(value cadence.Value) ([]model.PublicKeyAccountIndexer, error) {
+func getAccountKeysFromCadence(value cadence.Value) ([]model.PublicKeyAccountIndexer, error) {
 	allAccountsKeys := []model.PublicKeyAccountIndexer{}
 	for _, allKeys := range value.(cadence.Dictionary).Pairs {
 		address := allKeys.Key.(cadence.Address)
@@ -213,7 +212,7 @@ func getAccountKeys(value cadence.Value) ([]model.PublicKeyAccountIndexer, error
 				signatureAlgorithm: uint8(fields["signatureAlgorithm"].(cadence.UInt8)),
 				account:            address.String(),
 			}
-			log.Debug().Msgf("Processing key: %v", data.publicKey)
+
 			item := model.PublicKeyAccountIndexer{
 				Account:   data.account,
 				KeyId:     int(data.keyIndex),

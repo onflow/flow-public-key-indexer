@@ -5,7 +5,6 @@ import (
 
 	"example/flow-key-indexer/model"
 	"example/flow-key-indexer/pkg/pg"
-	"example/flow-key-indexer/utils"
 	"fmt"
 	logger "log"
 
@@ -51,66 +50,75 @@ func backfill() {
 	flowClient := NewFlowClient(params.FlowUrl1)
 
 	// Run the backfill process
-	if err := backfillPublicKeys(db, flowClient); err != nil {
+	if err := backfillPublicKeys(db, flowClient, params); err != nil {
 		log.Fatal().Err(err).Msg("Failed to backfill public keys")
 	}
 
 	log.Info().Msg("Backfill process completed successfully")
 }
 
-func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter) error {
-	var offset int64 = 0
+func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) error {
+	batchSize := 1000
+
 	for {
-		// Fetch a batch of records from the database
-		records, err := db.GetPublicKeyAccountsWithoutAlgos(1000, offset)
+		// Fetch a batch of unique addresses from the database
+		addresses, err := db.GetUniqueAddressesWithoutAlgos(batchSize)
 		if err != nil {
-			return fmt.Errorf("failed to fetch records: %w", err)
+			return fmt.Errorf("failed to fetch addresses: %w", err)
 		}
 
-		if len(records) == 0 {
-			break // No more records to process
+		if len(addresses) == 0 {
+			log.Info().Msg("No more addresses to process. Backfill complete.")
+			break
 		}
-		log.Debug().Msgf("Processing %d records", len(records))
+
+		// Convert string addresses to flow.Address
+		flowAddresses := make([]flow.Address, len(addresses))
+		for i, addr := range addresses {
+			flowAddresses[i] = flow.HexToAddress(addr)
+		}
+
 		// Process the batch
-		updatedRecords, err := processRecords(records, flowClient)
+		updatedRecords, err := processRecords(flowAddresses, flowClient, params)
 		if err != nil {
-			return fmt.Errorf("failed to process records: %w", err)
+			log.Error().Err(err).Msg("Failed to process addresses")
+			// Continue with the next batch instead of returning an error
+			continue
 		}
 
 		// Update the database with the new information
 		if err := db.UpdatePublicKeyAccounts(updatedRecords); err != nil {
-			return fmt.Errorf("failed to update records: %w", err)
+			log.Error().Err(err).Msg("Failed to update records")
+			// Continue with the next batch instead of returning an error
+			continue
 		}
 
-		log.Info().Msgf("Processed and updated %d records", len(updatedRecords))
+		log.Info().Msgf("Processed and updated records for %d addresses", len(addresses))
 
-		offset += int64(len(records))
 	}
 
 	return nil
 }
 
-func processRecords(records []model.PublicKeyAccountIndexer, flowClient *FlowAdapter) ([]model.PublicKeyAccountIndexer, error) {
+func processRecords(addresses []flow.Address, flowClient *FlowAdapter, config Params) ([]model.PublicKeyAccountIndexer, error) {
 	ctx := context.Background()
-	updatedRecords := make([]model.PublicKeyAccountIndexer, 0, len(records))
-
-	for _, record := range records {
-		address := flow.HexToAddress(utils.Strip0xPrefix(record.Account))
-		account, err := flowClient.Client.GetAccount(ctx, address)
-		if err != nil {
-			log.Warn().Err(err).Str("address", record.Account).Msg("Failed to fetch account")
-			continue
-		}
-
-		for _, key := range account.Keys {
-			if int(key.Index) == record.KeyId {
-				record.SigAlgo = int(key.SigAlgo)
-				record.HashAlgo = int(key.HashAlgo)
-				updatedRecords = append(updatedRecords, record)
-				break
-			}
-		}
+	currentBlock, err := flowClient.Client.GetLatestBlockHeader(ctx, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest block header: %w", err)
 	}
 
-	return updatedRecords, nil
+	publicKeys, err := ProcessAddressWithScript(ctx, config, addresses, log.Logger, flowClient.Client, config.FetchSlowDownMs, currentBlock.Height)
+	return publicKeys, err
+}
+
+func removeDuplicates(slice []flow.Address) []flow.Address {
+	keys := make(map[flow.Address]bool)
+	list := []flow.Address{}
+	for _, entry := range slice {
+		if _, value := keys[entry]; !value {
+			keys[entry] = true
+			list = append(list, entry)
+		}
+	}
+	return list
 }

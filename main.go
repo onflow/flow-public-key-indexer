@@ -35,7 +35,7 @@ func main() {
 
 	if *runBackfill {
 		log.Debug().Msg("Running backfill")
-		if err := backfillPublicKeys(a.DB, a.flowClient); err != nil {
+		if err := backfillPublicKeys(a.DB, a.flowClient, p); err != nil {
 			log.Fatal().Err(err).Msg("Backfill failed")
 		}
 		return
