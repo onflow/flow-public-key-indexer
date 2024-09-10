@@ -24,7 +24,6 @@ import (
 	"example/flow-key-indexer/model"
 	"example/flow-key-indexer/pkg/pg"
 	"example/flow-key-indexer/utils"
-	"math/big"
 	"strings"
 	"time"
 
@@ -41,7 +40,7 @@ type PublicKey struct {
 	hashAlgorithm      uint8
 	isRevoked          bool
 	weight             uint64
-	keyIndex           *big.Int
+	keyIndex           int
 	publicKey          string
 	signatureAlgorithm uint8
 	account            string
@@ -77,6 +76,7 @@ func ProcessAddressWithScript(
 ) ([]model.PublicKeyAccountIndexer, error) {
 	script := []byte(GetAccountKeys)
 	accountsCadenceValues := convertAddresses(addresses)
+	log.Debug().Msgf("Processing %d addresses", len(addresses))
 	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.MaxAcctKeys), cadence.NewBool(conf.IgnoreZeroWeight), cadence.NewBool(conf.IgnoreRevoked)}
 	result, err := retryScriptUntilSuccess(ctx, log, currentBlockHeight, script, arguments, flowClient, time.Duration(fetchSlowDown)*time.Millisecond)
 
@@ -86,6 +86,7 @@ func ProcessAddressWithScript(
 	}
 
 	keys, err := getAccountKeys(result)
+	log.Debug().Msgf("Account Keys Found: %v, %d, %v", len(keys) > 0, len(keys), result)
 	if err != nil {
 		log.Error().Err(err).Msg("Script: Failed to get account keys")
 	}
@@ -163,6 +164,7 @@ func retryScriptUntilSuccess(
 			arguments,
 			grpc.MaxCallRecvMsgSize(16*1024*1024),
 		)
+
 		if err == nil {
 			break
 		}
@@ -203,18 +205,20 @@ func getAccountKeys(value cadence.Value) ([]model.PublicKeyAccountIndexer, error
 		keys := []model.PublicKeyAccountIndexer{}
 		for _, nameCodePair := range allKeys.Value.(cadence.Dictionary).Pairs {
 			rawStruct := nameCodePair.Value.(cadence.Struct)
+			fields := rawStruct.FieldsMappedByName()
 			data := PublicKey{
-				hashAlgorithm:      rawStruct.Fields[0].ToGoValue().(uint8),
-				isRevoked:          rawStruct.Fields[1].ToGoValue().(bool),
-				weight:             rawStruct.Fields[2].ToGoValue().(uint64),
-				publicKey:          rawStruct.Fields[3].ToGoValue().(string),
-				keyIndex:           rawStruct.Fields[4].ToGoValue().(*big.Int),
-				signatureAlgorithm: rawStruct.Fields[5].ToGoValue().(uint8),
+				hashAlgorithm:      uint8(fields["hashAlgorithm"].(cadence.UInt8)),
+				isRevoked:          bool(fields["isRevoked"].(cadence.Bool)),
+				weight:             uint64(fields["weight"].(cadence.UInt64)),
+				publicKey:          string(fields["publicKey"].(cadence.String)),
+				keyIndex:           int(fields["keyIndex"].(cadence.Int).Int()),
+				signatureAlgorithm: uint8(fields["signatureAlgorithm"].(cadence.UInt8)),
 				account:            address.String(),
 			}
+			log.Debug().Msgf("Processing key: %v", data)
 			item := model.PublicKeyAccountIndexer{
 				Account:   data.account,
-				KeyId:     int(data.keyIndex.Int64()),
+				KeyId:     int(data.keyIndex),
 				PublicKey: data.publicKey,
 				Weight:    int(data.weight / 100000000),
 				SigAlgo:   int(data.signatureAlgorithm),

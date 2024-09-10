@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	logger "log"
 
 	"github.com/axiomzen/envconfig"
@@ -28,6 +29,17 @@ func main() {
 	}
 
 	a.Initialize(p)
+
+	runBackfill := flag.Bool("backfill", false, "Run backfill process")
+	flag.Parse()
+
+	if *runBackfill {
+		log.Debug().Msg("Running backfill")
+		if err := backfillPublicKeys(a.DB, a.flowClient); err != nil {
+			log.Fatal().Err(err).Msg("Backfill failed")
+		}
+		return
+	}
 
 	a.Run()
 

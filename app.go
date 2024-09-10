@@ -8,7 +8,9 @@ import (
 
 	_ "net/http/pprof"
 
+	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
+	"github.com/onflow/flow-go-sdk/access/grpc"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -59,6 +61,14 @@ type App struct {
 	rest       *Rest
 }
 
+type ClientWrapper struct {
+	*grpc.BaseClient
+}
+
+func (cw *ClientWrapper) ExecuteScriptAtBlockHeight(ctx context.Context, blockHeight uint64, script []byte, arguments []cadence.Value) (cadence.Value, error) {
+	return cw.BaseClient.ExecuteScriptAtBlockHeight(ctx, blockHeight, script, arguments)
+}
+
 func (a *App) Initialize(params Params) {
 	params.AllFlowUrls = setAllFlowUrls(params)
 	a.p = params
@@ -78,7 +88,7 @@ func (a *App) Initialize(params Params) {
 }
 
 func (a *App) Run() {
-	bufferSize := 100
+	bufferSize := 1000
 	ctx := context.Background()
 	highPriChan := make(chan []flow.Address)
 	lowPriAddressChan := make(chan []flow.Address, bufferSize)
@@ -173,10 +183,11 @@ func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 	ctx := context.Background()
 	startIndex := uint(a.p.SyncDataStartIndex)
 	pause := time.Duration(a.p.FetchSlowDownMs) * time.Millisecond
+	wrappedClient := &ClientWrapper{a.flowClient.Client}
 	// continuously run the bulk load process
 	for {
 		start := time.Now()
-		currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(ctx, true)
+		currentBlock, err := wrappedClient.GetLatestBlockHeader(ctx, true)
 		if err != nil {
 			log.Error().Err(err).Msg("Bulk Could not get current block height from default flow client")
 		}

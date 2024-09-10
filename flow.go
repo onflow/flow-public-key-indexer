@@ -86,7 +86,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 	for _, event := range events {
 		for _, evt := range event.Events {
 			var pkAddr string
-			payload, err := jsoncdc.Decode(evt.Payload)
+			payload, err := jsoncdc.Decode(nil, evt.Payload)
 			if err != nil {
 				log.Warn().Msgf("Could not decode payload %v %v", evt.Type, err.Error())
 				continue
@@ -98,7 +98,7 @@ func RunAddressQuery(client *client.Client, context context.Context, query clien
 			}
 			var address string
 			if evt.Type == "flow.AccountKeyAdded" {
-				address = addEvent.Fields[0].String()
+				address = addEvent.FieldsMappedByName()["address"].(cadence.Address).String()
 				allAccountAddresses = append(allAccountAddresses, address)
 			}
 			if evt.Type == "flow.AccountKeyRemoved" {

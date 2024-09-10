@@ -75,6 +75,7 @@ func (s Store) InsertPublicKeyAccounts(ctx context.Context, publicKeys []model.P
 		return nil
 	}
 
+	log.Debug().Msgf("Inserting %v public key accounts", len(publicKeys))
 	insertedCount, err := s.BatchInsertPublicKeyAccounts(ctx, publicKeys)
 
 	if insertedCount > 0 {
@@ -231,4 +232,27 @@ func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer,
 		Accounts:  accts,
 	}
 	return publicKeyAccounts, err
+}
+
+func (s *Store) GetPublicKeyAccountsWithoutAlgos(limit int, offset int64) ([]model.PublicKeyAccountIndexer, error) {
+	var records []model.PublicKeyAccountIndexer
+	err := s.db.
+		Where("sigalgo IS NULL OR hashalgo IS NULL").
+		Limit(limit).
+		Offset(int(offset)). // Convert offset to int
+		Find(&records).Error
+	return records, err
+}
+
+func (s *Store) UpdatePublicKeyAccounts(records []model.PublicKeyAccountIndexer) error {
+	// Implement the update logic here
+	// For example:
+	for _, record := range records {
+		err := s.db.Exec("UPDATE public_key_accounts SET sigalgo = ?, hashalgo = ? WHERE account = ? AND keyid = ?",
+			record.SigAlgo, record.HashAlgo, record.Account, record.KeyId).Error
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
