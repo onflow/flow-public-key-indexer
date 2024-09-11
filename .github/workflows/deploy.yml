@@ -49,6 +49,8 @@ jobs:
           KEYIDX_POSTGRESQLUSERNAME: postgres
           KEYIDX_POSTGRESQLPASSWORD: password
           KEYIDX_POSTGRESQLDATABASE: keyindexer
+          CGO_ENABLED: 1
+          CGO_CFLAGS: "-O2 -D__BLST_PORTABLE__"
         run: go test ./... -v
 
   build:
@@ -73,12 +75,16 @@ jobs:
         with:
           project_id: ${{ vars.GAR_PROJECT_ID }}
       
-      - name: Docker Auth
-        run: |-
-          gcloud auth configure-docker ${{ vars.GAR_LOCATION }}-docker.pkg.dev
-          docker build -t ${{ env.DOCKER_IMAGE_URL }} --file Dockerfile .
-          docker push ${{ env.DOCKER_IMAGE_URL }}
-      
+      - name: Build Docker image
+        env:
+          CGO_ENABLED: 1
+          CGO_CFLAGS: "-O2 -D__BLST_PORTABLE__"
+        run: |
+          docker build -t ${{ env.DOCKER_IMAGE_URL }} \
+            --build-arg CGO_ENABLED=1 \
+            --build-arg CGO_CFLAGS="-O2 -D__BLST_PORTABLE__" \
+            --file Dockerfile .
+
   deploy-staging:
     needs: [build]
     environment: staging
