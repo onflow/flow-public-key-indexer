@@ -121,11 +121,25 @@ jobs:
           token_format: 'access_token'
           workload_identity_provider: ${{ vars.DEPLOYER_GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
+
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v1
         with:
           service: ${{ vars.GCP_SERVICE }}
+          region: us-central1
           image: ${{ env.DOCKER_IMAGE_URL }}
+          env_vars: |
+            PORT=8080
+            KEYIDX_POSTGRESQLHOST=${{ secrets.KEYIDX_POSTGRESQLHOST }}
+            KEYIDX_POSTGRESQLPORT=${{ secrets.KEYIDX_POSTGRESQLPORT }}
+            KEYIDX_POSTGRESQLUSERNAME=${{ secrets.KEYIDX_POSTGRESQLUSERNAME }}
+            KEYIDX_POSTGRESQLPASSWORD=${{ secrets.KEYIDX_POSTGRESQLPASSWORD }}
+            KEYIDX_POSTGRESQLDATABASE=${{ secrets.KEYIDX_POSTGRESQLDATABASE }}
+            # Add any other necessary environment variables here
+          flags: |
+            --allow-unauthenticated
+            --port=8080
+            --health-check-path=/healthz
 
   deploy-production:
     needs: [build]
@@ -144,8 +158,22 @@ jobs:
           token_format: 'access_token'
           workload_identity_provider: ${{ vars.DEPLOYER_GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
+
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v1
         with:
           service: ${{ vars.GCP_SERVICE }}
+          region: us-central1
           image: ${{ env.DOCKER_IMAGE_URL }}
+          env_vars: |
+            PORT=8080
+            KEYIDX_POSTGRESQLHOST=${{ secrets.KEYIDX_POSTGRESQLHOST }}
+            KEYIDX_POSTGRESQLPORT=${{ secrets.KEYIDX_POSTGRESQLPORT }}
+            KEYIDX_POSTGRESQLUSERNAME=${{ secrets.KEYIDX_POSTGRESQLUSERNAME }}
+            KEYIDX_POSTGRESQLPASSWORD=${{ secrets.KEYIDX_POSTGRESQLPASSWORD }}
+            KEYIDX_POSTGRESQLDATABASE=${{ secrets.KEYIDX_POSTGRESQLDATABASE }}
+            # Add any other necessary environment variables here
+          flags: |
+            --allow-unauthenticated
+            --port=8080
+            --health-check-path=/healthz
