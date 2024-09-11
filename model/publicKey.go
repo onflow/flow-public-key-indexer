@@ -6,6 +6,8 @@ type AccountKey struct {
 	Weight   int    `json:"weight"`
 	SigAlgo  int    `json:"sigAlgo"`
 	HashAlgo int    `json:"hashAlgo"`
+	Signing  string `json:"signing"`
+	Hashing  string `json:"hashing"`
 }
 
 type PublicKeyIndexer struct {

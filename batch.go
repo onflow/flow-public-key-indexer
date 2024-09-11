@@ -26,19 +26,24 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/grpc/credentials/insecure"
+
 	"github.com/onflow/flow-go-sdk"
-	"github.com/onflow/flow-go-sdk/client"
-	flowclient "github.com/onflow/flow-go-sdk/client"
+	"github.com/onflow/flow-go-sdk/access"
+	"github.com/onflow/flow-go-sdk/access/grpc"
 	"github.com/rs/zerolog"
-	"google.golang.org/grpc"
+	grpcOpts "google.golang.org/grpc"
 )
 
 // getFlowClient initializes and returns a flow client
-func getFlowClient(flowClientUrl string) *flowclient.Client {
-	flowClient, err := flowclient.New(flowClientUrl, grpc.WithInsecure())
+func getFlowClient(flowClientUrl string) *grpc.BaseClient {
+	flowClient, err := grpc.NewBaseClient(flowClientUrl,
+		grpcOpts.WithTransportCredentials(insecure.NewCredentials()),
+	)
 	if err != nil {
 		panic(err)
 	}
+
 	return flowClient
 }
 
@@ -64,7 +69,7 @@ var ignoreAccounts = map[string]bool{
 func ProcessAddressChannels(
 	ctx context.Context,
 	log zerolog.Logger,
-	client *client.Client,
+	client access.Client,
 	highPriorityChan chan []flow.Address,
 	lowPriorityChan chan []flow.Address,
 	insertionHandler func(context.Context, []model.PublicKeyAccountIndexer) error,
@@ -80,12 +85,14 @@ func ProcessAddressChannels(
 
 	// Launch a goroutine to handle results
 	go func() {
+		log.Debug().Msg("Batch Results channel handler started")
 		for {
 			select {
 			case <-ctx.Done():
 				log.Info().Msg("Batch Context done, exiting result handler")
 				return
 			case keys, ok := <-resultsChan:
+				log.Debug().Msgf("Batch Results channel received %v keys", len(keys))
 				if !ok {
 					log.Info().Msg("Batch Results channel closed, exiting result handler")
 					return
@@ -165,21 +172,21 @@ func ProcessAddressChannels(
 						continue
 					}
 					start := time.Now()
-					log.Debug().Msgf("Batch Bulk worker %d processing %d addresses, q(%d)", workerID, len(accountAddresses), len(lowPriorityChan))
+					log.Debug().Msgf("Batch Bulk Low-priority worker %d processing %d addresses, q(%d)", workerID, len(accountAddresses), len(lowPriorityChan))
 					// second worker gets longer fetchSlowdown
 					fetchSlowdown = fetchSlowdown * workerID
 					currentBlock, err := client.GetLatestBlockHeader(ctx, true)
 					if err != nil {
-						log.Error().Err(err).Msg("Batch Bulk Could not get current block height from default flow client")
-						return
+						log.Error().Err(err).Msg("Batch Bulk Low-priority Could not get current block height from default flow client")
+						continue
 					}
 					accountKeys, err := ProcessAddressWithScript(ctx, config, accountAddresses, log, client, fetchSlowdown, currentBlock.Height)
 					if err != nil {
-						log.Error().Err(err).Msgf("Batch Bulk Failed Script Load, w(%d) addresses with script", workerID)
-						return
+						log.Error().Err(err).Msgf("Batch Bulk Low-priority Failed Script Load, w(%d) addresses with script", workerID)
+						continue
 					}
 					duration := time.Since(start)
-					log.Info().Msgf("Batch Bulk Finished Script Load, duration(%f) w(%d) %v, block %d, q(%d)", duration.Seconds(), workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
+					log.Info().Msgf("Batch Bulk Low-priority Finished Script Load, duration(%f) w(%d) %v, block %d, q(%d)", duration.Seconds(), workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
 					if len(accountKeys) > 0 {
 						resultsChan <- accountKeys
 					}
@@ -195,7 +202,7 @@ func processAddresses(
 	accountAddresses []flow.Address,
 	ctx context.Context,
 	log zerolog.Logger,
-	client *flowclient.Client,
+	client access.Client,
 	resultsChan chan []model.PublicKeyAccountIndexer,
 	fetchSlowdown int, insertHandler func(context.Context, []model.PublicKeyAccountIndexer) error) {
 
@@ -247,12 +254,15 @@ func processAddresses(
 					PublicKey: utils.Strip0xPrefix(key.PublicKey.String()),
 					Account:   utils.Add0xPrefix(addrStr),
 					Weight:    key.Weight,
-					KeyId:     key.Index,
+					KeyId:     int(key.Index),
+					SigAlgo:   int(key.SigAlgo),
+					HashAlgo:  int(key.HashAlgo),
 				})
 			}
 		}
 	}
 
+	log.Debug().Msgf("Batch API Processed %v keys of %v addresses", len(keys), len(accountAddresses))
 	// Send the keys to the results channel
 	err := insertHandler(ctx, keys)
 	if err != nil {

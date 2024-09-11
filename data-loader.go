@@ -24,16 +24,14 @@ import (
 	"example/flow-key-indexer/model"
 	"example/flow-key-indexer/pkg/pg"
 	"example/flow-key-indexer/utils"
-	"math/big"
 	"strings"
 	"time"
 
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
-	flowclient "github.com/onflow/flow-go-sdk/client"
+	"github.com/onflow/flow-go-sdk/access"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"google.golang.org/grpc"
 	// Add this line to import the utils package
 )
 
@@ -41,7 +39,7 @@ type PublicKey struct {
 	hashAlgorithm      uint8
 	isRevoked          bool
 	weight             uint64
-	keyIndex           *big.Int
+	keyIndex           int
 	publicKey          string
 	signatureAlgorithm uint8
 	account            string
@@ -71,7 +69,7 @@ func ProcessAddressWithScript(
 	conf Params,
 	addresses []flow.Address,
 	log zerolog.Logger,
-	flowClient *flowclient.Client,
+	flowClient access.Client,
 	fetchSlowDown int,
 	currentBlockHeight uint64,
 ) ([]model.PublicKeyAccountIndexer, error) {
@@ -85,7 +83,8 @@ func ProcessAddressWithScript(
 		return nil, err
 	}
 
-	keys, err := getAccountKeys(result)
+	keys, err := getAccountKeysFromCadence(result)
+	log.Debug().Msgf("Account Keys Found: %v, %d", len(keys) > 0, len(keys))
 	if err != nil {
 		log.Error().Err(err).Msg("Script: Failed to get account keys")
 	}
@@ -147,7 +146,7 @@ func retryScriptUntilSuccess(
 	blockHeight uint64,
 	script []byte,
 	arguments []cadence.Value,
-	flowClient *flowclient.Client,
+	flowClient access.Client,
 	pause time.Duration,
 ) (cadence.Value, error) {
 	var err error
@@ -161,8 +160,8 @@ func retryScriptUntilSuccess(
 			blockHeight,
 			script,
 			arguments,
-			grpc.MaxCallRecvMsgSize(16*1024*1024),
 		)
+
 		if err == nil {
 			break
 		}
@@ -195,7 +194,7 @@ func retryScriptUntilSuccess(
 	return result, err
 }
 
-func getAccountKeys(value cadence.Value) ([]model.PublicKeyAccountIndexer, error) {
+func getAccountKeysFromCadence(value cadence.Value) ([]model.PublicKeyAccountIndexer, error) {
 	allAccountsKeys := []model.PublicKeyAccountIndexer{}
 	for _, allKeys := range value.(cadence.Dictionary).Pairs {
 		address := allKeys.Key.(cadence.Address)
@@ -203,18 +202,20 @@ func getAccountKeys(value cadence.Value) ([]model.PublicKeyAccountIndexer, error
 		keys := []model.PublicKeyAccountIndexer{}
 		for _, nameCodePair := range allKeys.Value.(cadence.Dictionary).Pairs {
 			rawStruct := nameCodePair.Value.(cadence.Struct)
+			fields := rawStruct.FieldsMappedByName()
 			data := PublicKey{
-				hashAlgorithm:      rawStruct.Fields[0].ToGoValue().(uint8),
-				isRevoked:          rawStruct.Fields[1].ToGoValue().(bool),
-				weight:             rawStruct.Fields[2].ToGoValue().(uint64),
-				publicKey:          rawStruct.Fields[3].ToGoValue().(string),
-				keyIndex:           rawStruct.Fields[4].ToGoValue().(*big.Int),
-				signatureAlgorithm: rawStruct.Fields[5].ToGoValue().(uint8),
+				hashAlgorithm:      uint8(fields["hashAlgorithm"].(cadence.UInt8)),
+				isRevoked:          bool(fields["isRevoked"].(cadence.Bool)),
+				weight:             uint64(fields["weight"].(cadence.UFix64)),
+				publicKey:          string(fields["publicKey"].(cadence.String)),
+				keyIndex:           int(fields["keyIndex"].(cadence.Int).Int()),
+				signatureAlgorithm: uint8(fields["signatureAlgorithm"].(cadence.UInt8)),
 				account:            address.String(),
 			}
+
 			item := model.PublicKeyAccountIndexer{
 				Account:   data.account,
-				KeyId:     int(data.keyIndex.Int64()),
+				KeyId:     int(data.keyIndex),
 				PublicKey: data.publicKey,
 				Weight:    int(data.weight / 100000000),
 				SigAlgo:   int(data.signatureAlgorithm),

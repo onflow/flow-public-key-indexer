@@ -222,6 +222,8 @@ func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer,
 			Weight:   pk.Weight,
 			SigAlgo:  pk.SigAlgo,
 			HashAlgo: pk.HashAlgo,
+			Signing:  GetSignatureAlgoString(pk.SigAlgo),
+			Hashing:  GetHashingAlgoString(pk.HashAlgo),
 		}
 		accts = append(accts, acct)
 
@@ -231,4 +233,58 @@ func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer,
 		Accounts:  accts,
 	}
 	return publicKeyAccounts, err
+}
+
+func GetHashingAlgoString(hashAlgoInt int) string {
+	switch hashAlgoInt {
+	case 1:
+		return "SHA2_256"
+	case 2:
+		return "SHA2_384"
+	case 3:
+		return "SHA3_256"
+	case 4:
+		return "SHA3_384"
+	case 5:
+		return "KMAC128_BLS_BLS12_381"
+	case 6:
+		return "KECCAK_256"
+	default:
+		return "Unknown"
+	}
+}
+func GetSignatureAlgoString(sigAlgoInt int) string {
+	switch sigAlgoInt {
+	case 1:
+		return "ECDSA_P256"
+	case 2:
+		return "ECDSA_secp256k1"
+	case 3:
+		return "BLS_BLS12_381"
+	default:
+		return "Unknown"
+	}
+}
+
+func (s *Store) UpdatePublicKeyAccounts(records []model.PublicKeyAccountIndexer) error {
+	// Implement the update logic here
+	// For example:
+	for _, record := range records {
+		err := s.db.Exec("UPDATE publickeyindexer SET sigalgo = ?, hashalgo = ? WHERE account = ? AND keyid = ? AND publickey = ?",
+			record.SigAlgo, record.HashAlgo, record.Account, record.KeyId, record.PublicKey).Error
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) GetUniqueAddressesWithoutAlgos(limit int) ([]string, error) {
+	var addresses []string
+	err := s.db.Table("publickeyindexer").
+		Select("DISTINCT account").
+		Where("sigalgo IS NULL OR hashalgo IS NULL").
+		Limit(limit).
+		Pluck("account", &addresses).Error
+	return addresses, err
 }

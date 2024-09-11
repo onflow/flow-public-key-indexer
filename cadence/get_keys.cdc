@@ -33,7 +33,7 @@ access(all) fun main(addresses: [Address], keyCap: Int, ignoreZeroWeight: Bool, 
           keyIndex = keyIndex + 1
           if let _currKey = currKey {
               var included = true
-              if ignoreZeroWeight && _currKey.weight == UFix64(0) {
+              if ignoreZeroWeight && _currKey.weight == 0.0 {
                 included = false
               }
               if ignoreRevoked && _currKey.isRevoked {
