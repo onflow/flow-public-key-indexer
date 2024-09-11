@@ -82,20 +82,21 @@ jobs:
         with:
           project_id: ${{ vars.GAR_PROJECT_ID }}
       
-      - name: Install GCC
+      - name: Install GCC and dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc
+          sudo apt-get install -y gcc libc6-dev
+      
       - name: Build Docker image
         env:
           CGO_ENABLED: 1
           CGO_CFLAGS: "-O2 -D__BLST_PORTABLE__"
+          GOARCH: amd64
         run: |
           docker build -t ${{ env.DOCKER_IMAGE_URL }} \
-            --build-arg CGO_ENABLED=1 \
-            --build-arg CGO_CFLAGS="-O2 -D__BLST_PORTABLE__" \
-            --build-arg CC=gcc \
-            --build-arg GOARCH=amd64 \
+            --build-arg CGO_ENABLED=$CGO_ENABLED \
+            --build-arg CGO_CFLAGS="$CGO_CFLAGS" \
+            --build-arg GOARCH=$GOARCH \
             --file Dockerfile .
 
   deploy-staging:
