@@ -42,6 +42,10 @@ jobs:
           go-version: 1.22
       - name: Install dependencies
         run: go mod tidy
+      - name: Install ARM64 GCC
+        run: |
+          apt-get update
+          apt-get install -y gcc-aarch64-linux-gnu
       - name: Run tests
         env:
           KEYIDX_POSTGRESQLHOST: postgres
@@ -78,6 +82,10 @@ jobs:
         with:
           project_id: ${{ vars.GAR_PROJECT_ID }}
       
+      - name: Install ARM64 GCC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
       - name: Build Docker image
         env:
           CGO_ENABLED: 1
@@ -86,6 +94,7 @@ jobs:
           docker build -t ${{ env.DOCKER_IMAGE_URL }} \
             --build-arg CGO_ENABLED=1 \
             --build-arg CGO_CFLAGS="-O2 -D__BLST_PORTABLE__" \
+            --build-arg CC=aarch64-linux-gnu-gcc \
             --file Dockerfile .
 
   deploy-staging:
