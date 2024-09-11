@@ -17,5 +17,6 @@
 /tests/*
 .DS_Store
 .go-version
-output.log
 flow-key-indexer
+output.log
+
