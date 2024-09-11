@@ -87,16 +87,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc libc6-dev
       
-      - name: Docker Auth
-        run: |
-          gcloud auth configure-docker ${{ vars.GAR_LOCATION }}-docker.pkg.dev
-      
       - name: Build and Push Docker image
         env:
           CGO_ENABLED: 1
           CGO_CFLAGS: "-O2 -D__BLST_PORTABLE__"
           GOARCH: amd64
         run: |
+          gcloud auth configure-docker ${{ vars.GAR_LOCATION }}-docker.pkg.dev
           docker build -t ${{ env.DOCKER_IMAGE_URL }} \
             --build-arg CGO_ENABLED=$CGO_ENABLED \
             --build-arg CGO_CFLAGS="$CGO_CFLAGS" \
@@ -121,25 +118,11 @@ jobs:
           token_format: 'access_token'
           workload_identity_provider: ${{ vars.DEPLOYER_GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
-
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v1
         with:
           service: ${{ vars.GCP_SERVICE }}
-          region: us-central1
           image: ${{ env.DOCKER_IMAGE_URL }}
-          env_vars: |
-            PORT=8080
-            KEYIDX_POSTGRESQLHOST=${{ secrets.KEYIDX_POSTGRESQLHOST }}
-            KEYIDX_POSTGRESQLPORT=${{ secrets.KEYIDX_POSTGRESQLPORT }}
-            KEYIDX_POSTGRESQLUSERNAME=${{ secrets.KEYIDX_POSTGRESQLUSERNAME }}
-            KEYIDX_POSTGRESQLPASSWORD=${{ secrets.KEYIDX_POSTGRESQLPASSWORD }}
-            KEYIDX_POSTGRESQLDATABASE=${{ secrets.KEYIDX_POSTGRESQLDATABASE }}
-            # Add any other necessary environment variables here
-          flags: |
-            --allow-unauthenticated
-            --port=8080
-            --health-check-path=/healthz
 
   deploy-production:
     needs: [build]
@@ -158,22 +141,8 @@ jobs:
           token_format: 'access_token'
           workload_identity_provider: ${{ vars.DEPLOYER_GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
-
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v1
         with:
           service: ${{ vars.GCP_SERVICE }}
-          region: us-central1
           image: ${{ env.DOCKER_IMAGE_URL }}
-          env_vars: |
-            PORT=8080
-            KEYIDX_POSTGRESQLHOST=${{ secrets.KEYIDX_POSTGRESQLHOST }}
-            KEYIDX_POSTGRESQLPORT=${{ secrets.KEYIDX_POSTGRESQLPORT }}
-            KEYIDX_POSTGRESQLUSERNAME=${{ secrets.KEYIDX_POSTGRESQLUSERNAME }}
-            KEYIDX_POSTGRESQLPASSWORD=${{ secrets.KEYIDX_POSTGRESQLPASSWORD }}
-            KEYIDX_POSTGRESQLDATABASE=${{ secrets.KEYIDX_POSTGRESQLDATABASE }}
-            # Add any other necessary environment variables here
-          flags: |
-            --allow-unauthenticated
-            --port=8080
-            --health-check-path=/healthz
