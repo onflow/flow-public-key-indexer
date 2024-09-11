@@ -93,9 +93,12 @@ serves up json object</p>
 ```
 {
 	"publicKey": string  // public key string in base64
-	"accounts" : array of {address: string, keyId: int, weight: int} 
+	"accounts" : array of {address: string, keyId: int, weight: int, sigAlgo: int, hashAlgo: int, signing: string, hashing: string} 
 }
 ```
+
+<p>sigAlgo - signing: 1 - ECDSA_P256, 2 - ECDSA_secp256k1, 3 - ECDSA_P384, 4 - ECDSA_P521, 5 - ECDSA_secp256r1</p>
+<p>hashAlgo - hashing: 1 - SHA2_256, 2 - SHA3_256, 3 - SHA2_384, 4 - SHA3_384, 5 - SHA2_512, 6 - SHA3_512</p>
 
 * \<root\>/status
 <p>note: this endpoint gives ability to see if the server is active and updating</p>
