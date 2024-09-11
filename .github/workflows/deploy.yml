@@ -1,12 +1,9 @@
 name: "Deploy to Cloud Run"
 
 on:
-  pull_request:
-    branches:
-      - main
   push:
     branches:
-      - main
+      - robust-insert-keys
 
 env:
   DOCKER_IMAGE_URL: ${{ vars.GCP_DOCKER_IMAGE_URL }}:${{ github.sha }}
