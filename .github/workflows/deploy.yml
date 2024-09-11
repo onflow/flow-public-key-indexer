@@ -87,7 +87,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc libc6-dev
       
-      - name: Build Docker image
+      - name: Docker Auth
+        run: |
+          gcloud auth configure-docker ${{ vars.GAR_LOCATION }}-docker.pkg.dev
+      
+      - name: Build and Push Docker image
         env:
           CGO_ENABLED: 1
           CGO_CFLAGS: "-O2 -D__BLST_PORTABLE__"
@@ -98,6 +102,7 @@ jobs:
             --build-arg CGO_CFLAGS="$CGO_CFLAGS" \
             --build-arg GOARCH=$GOARCH \
             --file Dockerfile .
+          docker push ${{ env.DOCKER_IMAGE_URL }}
 
   deploy-staging:
     needs: [build]
