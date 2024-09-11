@@ -50,6 +50,9 @@ jobs:
           KEYIDX_POSTGRESQLPASSWORD: password
           KEYIDX_POSTGRESQLDATABASE: keyindexer
           CGO_ENABLED: 1
+          GOOS: linux
+          GOARCH: amd64
+          CC: aarch64-linux-gnu-gcc
           CGO_CFLAGS: "-O2 -D__BLST_PORTABLE__"
         run: go test ./... -v
 
