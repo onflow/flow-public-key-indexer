@@ -28,4 +28,4 @@ WORKDIR /key-indexer
 COPY --from=builder /key-indexer/key-indexer /key-indexer
 COPY .env /key-indexer/.env
 EXPOSE 8080
-CMD ["/key-indexer"]
+CMD ["/key-indexer/key-indexer"]
