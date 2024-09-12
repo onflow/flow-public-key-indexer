@@ -255,13 +255,14 @@ func processAddresses(
 					Account:   utils.Add0xPrefix(addrStr),
 					Weight:    key.Weight,
 					KeyId:     int(key.Index),
-					SigAlgo:   int(key.SigAlgo),
-					HashAlgo:  int(key.HashAlgo),
+					SigAlgo:   GetSignatureAlgoIndex(key.SigAlgo.String()),
+					HashAlgo:  GetHashingAlgoIndex(key.HashAlgo.String()),
 				})
 			}
 		}
 	}
 
+	log.Debug().Msgf("adding public keys: %v", keys)
 	log.Debug().Msgf("Batch API Processed %v keys of %v addresses", len(keys), len(accountAddresses))
 	// Send the keys to the results channel
 	err := insertHandler(ctx, keys)
@@ -272,4 +273,36 @@ func processAddresses(
 		log.Info().Msgf("Batch API Saved %v keys of %v addresses", len(keys), len(accountAddresses))
 	}
 
+}
+
+func GetHashingAlgoIndex(hashAlgo string) int {
+	switch hashAlgo {
+	case "SHA2_256":
+		return 1
+	case "SHA2_384":
+		return 2
+	case "SHA3_256":
+		return 3
+	case "SHA3_384":
+		return 4
+	case "KMAC128_BLS_BLS12_381":
+		return 5
+	case "KECCAK_256":
+		return 6
+	default:
+		return 0 // Unknown
+	}
+}
+
+func GetSignatureAlgoIndex(sigAlgo string) int {
+	switch sigAlgo {
+	case "ECDSA_P256":
+		return 1
+	case "ECDSA_secp256k1":
+		return 2
+	case "BLS_BLS12_381":
+		return 3
+	default:
+		return 0
+	}
 }

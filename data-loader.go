@@ -213,6 +213,8 @@ func getAccountKeysFromCadence(value cadence.Value) ([]model.PublicKeyAccountInd
 				account:            address.String(),
 			}
 
+			log.Debug().Msgf("data: %v", data)
+
 			item := model.PublicKeyAccountIndexer{
 				Account:   data.account,
 				KeyId:     int(data.keyIndex),
@@ -221,6 +223,9 @@ func getAccountKeysFromCadence(value cadence.Value) ([]model.PublicKeyAccountInd
 				SigAlgo:   int(data.signatureAlgorithm),
 				HashAlgo:  int(data.hashAlgorithm),
 			}
+
+			log.Debug().Msgf("item: %v", item)
+
 			keys = append(keys, item)
 			counter = counter + 1
 		}
