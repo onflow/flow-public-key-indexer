@@ -9,6 +9,7 @@ import (
 	_ "github.com/golang-migrate/migrate/source/file"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -278,18 +279,32 @@ func GetSignatureAlgoString(sigAlgoInt int) string {
 	}
 }
 
-func (s *Store) UpdatePublicKeyAccounts(records []model.PublicKeyAccountIndexer) error {
-	// Implement the update logic here
-	// For example:
-	for _, record := range records {
-		err := s.db.Exec("UPDATE publickeyindexer SET sigalgo = ?, hashalgo = ? WHERE account = ? AND keyid = ? AND publickey = ?",
-			record.SigAlgo, record.HashAlgo, record.Account, record.KeyId, record.PublicKey).Error
-		if err != nil {
-			return err
+func (s *Store) UpdatePublicKeyAccounts(batchSize int, records []model.PublicKeyAccountIndexer) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for i := 0; i < len(records); i += batchSize {
+			end := i + batchSize
+			if end > len(records) {
+				end = len(records)
+			}
+
+			batch := records[i:end]
+
+			// Use GORM's bulk update
+			result := tx.Model(&model.PublicKeyAccountIndexer{}).
+				Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "account"}, {Name: "keyid"}, {Name: "publickey"}},
+					DoUpdates: clause.AssignmentColumns([]string{"sigalgo", "hashalgo"}),
+				}).
+				Create(batch)
+
+			if result.Error != nil {
+				return result.Error
+			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
+
 func (s *Store) GetUniqueAddressesWithoutAlgos(limit int) ([]string, error) {
 	var addresses []string
 	err := s.db.Table("publickeyindexer").

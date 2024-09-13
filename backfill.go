@@ -87,7 +87,7 @@ func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) er
 		}
 
 		// Update the database with the new information
-		if err := db.UpdatePublicKeyAccounts(updatedRecords); err != nil {
+		if err := db.UpdatePublicKeyAccounts(batchSize, updatedRecords); err != nil {
 			log.Error().Err(err).Msg("Failed to update records")
 			// Continue with the next batch instead of returning an error
 			continue
