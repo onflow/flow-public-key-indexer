@@ -58,16 +58,27 @@ func (s Store) Stats() model.PublicKeyStatus {
 		LoadedToBlock: status.LoadedToBlock,
 	}
 }
-
 func (s Store) BatchInsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) (int64, error) {
+	if len(publicKeys) == 0 {
+		return 0, nil
+	}
+
 	batchSize := len(publicKeys)
+
+	// Ensure conflict resolution happens when account, keyid, and publickey all match
 	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "account"}, {Name: "keyid"}, {Name: "publickey"}},
-		DoUpdates: clause.AssignmentColumns([]string{"weight", "sigalgo", "hashalgo"}),
+		Columns: []clause.Column{
+			{Name: "account"},
+			{Name: "keyid"},
+			{Name: "publickey"},
+		}, // Detect conflict based on these three columns
+		DoUpdates: clause.AssignmentColumns([]string{"sigalgo", "hashalgo"}), // Update only SigAlgo and HashAlgo on conflict
 	}).CreateInBatches(publicKeys, batchSize)
+
 	if result.Error != nil {
 		return 0, result.Error
 	}
+
 	return result.RowsAffected, nil
 }
 
