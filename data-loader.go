@@ -76,7 +76,7 @@ func ProcessAddressWithScript(
 	script := []byte(GetAccountKeys)
 	accountsCadenceValues := convertAddresses(addresses)
 	arguments := []cadence.Value{cadence.NewArray(accountsCadenceValues), cadence.NewInt(conf.MaxAcctKeys), cadence.NewBool(conf.IgnoreZeroWeight), cadence.NewBool(conf.IgnoreRevoked)}
-	result, err := retryScriptUntilSuccess(ctx, log, currentBlockHeight, script, arguments, flowClient, time.Duration(fetchSlowDown)*time.Millisecond)
+	result, err := retryScriptUntilSuccess(ctx, log, script, arguments, flowClient, time.Duration(fetchSlowDown)*time.Millisecond)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Script: Failed to get account keys")
@@ -84,7 +84,6 @@ func ProcessAddressWithScript(
 	}
 
 	keys, err := getAccountKeysFromCadence(result)
-	log.Debug().Msgf("Account Keys Found: %v, %d", len(keys) > 0, len(keys))
 	if err != nil {
 		log.Error().Err(err).Msg("Script: Failed to get account keys")
 	}
@@ -143,7 +142,6 @@ func unique(addresses []flow.Address) []flow.Address {
 func retryScriptUntilSuccess(
 	ctx context.Context,
 	log zerolog.Logger,
-	blockHeight uint64,
 	script []byte,
 	arguments []cadence.Value,
 	flowClient access.Client,
@@ -155,9 +153,8 @@ func retryScriptUntilSuccess(
 	maxAttemps := 5
 
 	for {
-		result, err = flowClient.ExecuteScriptAtBlockHeight(
+		result, err = flowClient.ExecuteScriptAtLatestBlock(
 			ctx,
-			blockHeight,
 			script,
 			arguments,
 		)
@@ -174,8 +171,6 @@ func retryScriptUntilSuccess(
 		}
 
 		time.Sleep(pause)
-		block, _ := flowClient.GetLatestBlockHeader(ctx, true)
-		blockHeight = block.Height
 
 		if strings.Contains(err.Error(), "ResourceExhausted") {
 			// really slow down when node is ResourceExhausted
@@ -213,8 +208,6 @@ func getAccountKeysFromCadence(value cadence.Value) ([]model.PublicKeyAccountInd
 				account:            address.String(),
 			}
 
-			log.Debug().Msgf("data: %v", data)
-
 			item := model.PublicKeyAccountIndexer{
 				Account:   data.account,
 				KeyId:     int(data.keyIndex),
@@ -223,8 +216,6 @@ func getAccountKeysFromCadence(value cadence.Value) ([]model.PublicKeyAccountInd
 				SigAlgo:   int(data.signatureAlgorithm),
 				HashAlgo:  int(data.hashAlgorithm),
 			}
-
-			log.Debug().Msgf("item: %v", item)
 
 			keys = append(keys, item)
 			counter = counter + 1

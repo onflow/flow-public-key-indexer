@@ -279,39 +279,22 @@ func GetSignatureAlgoString(sigAlgoInt int) string {
 	}
 }
 
-func (s *Store) UpdatePublicKeyAccounts(batchSize int, records []model.PublicKeyAccountIndexer) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
-		for i := 0; i < len(records); i += batchSize {
-			end := i + batchSize
-			if end > len(records) {
-				end = len(records)
-			}
-
-			batch := records[i:end]
-
-			// Use GORM's bulk update
-			result := tx.Model(&model.PublicKeyAccountIndexer{}).
-				Clauses(clause.OnConflict{
-					Columns:   []clause.Column{{Name: "account"}, {Name: "keyid"}, {Name: "publickey"}},
-					DoUpdates: clause.AssignmentColumns([]string{"sigalgo", "hashalgo"}),
-				}).
-				Create(batch)
-
-			if result.Error != nil {
-				return result.Error
-			}
-		}
-		return nil
-	})
-}
-
 func (s *Store) GetUniqueAddressesWithoutAlgos(limit int) ([]string, error) {
 	var addresses []string
-	err := s.db.Table("publickeyindexer").
-		Select("DISTINCT account").
-		Where("sigalgo IS NULL OR hashalgo IS NULL").
-		Order("account ASC"). // Add the sorting order here, use DESC for descending order
-		Limit(limit).
-		Pluck("account", &addresses).Error
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		return tx.Table("publickeyindexer").
+			Select("DISTINCT account").
+			Where("sigalgo IS NULL OR hashalgo IS NULL").
+			Order("account ASC"). // Add the sorting order here, use DESC for descending order
+			Limit(limit).
+			Pluck("account", &addresses).Error
+	})
+
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Error fetching unique addresses without algos")
+	} else {
+		s.logger.Info().Msgf("Fetched %d unique addresses without algos", len(addresses))
+	}
+
 	return addresses, err
 }
