@@ -294,8 +294,6 @@ func (s *Store) GetUniqueAddressesWithoutAlgos(limit int) ([]string, error) {
 
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Error fetching unique addresses without algos")
-	} else {
-		s.logger.Info().Msgf("Fetched %d unique addresses without algos", len(addresses))
 	}
 
 	return addresses, err

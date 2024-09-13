@@ -47,8 +47,6 @@ func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) er
 			continue
 		}
 
-		log.Info().Msgf("Processed and updated records for %d addresses", len(addresses))
-
 	}
 
 	return nil
