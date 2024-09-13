@@ -5,11 +5,13 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
 	"github.com/onflow/flow-go-sdk/access"
 	"github.com/onflow/flow-go-sdk/access/grpc"
+	rpc "google.golang.org/grpc"
 )
 
 type FlowAdapter struct {
@@ -24,8 +26,24 @@ func NewFlowClient(url string) *FlowAdapter {
 	// any reason to pass this as an arg instead?
 	adapter.URL = url
 
-	// create flow client
-	FlowClient, err := grpc.NewClient(strings.TrimSpace(adapter.URL))
+	dialOptions := []rpc.DialOption{
+		// Set maximum receive and send message sizes
+		rpc.WithDefaultCallOptions(
+			rpc.MaxCallRecvMsgSize(10*1024*1024), // 10 MB receive limit
+			rpc.MaxCallSendMsgSize(10*1024*1024), // 10 MB send limit
+		),
+		rpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+
+	clientOptions := []grpc.ClientOption{
+		grpc.WithGRPCDialOptions(dialOptions...),
+	}
+
+	FlowClient, err := grpc.NewClient(
+		strings.TrimSpace(adapter.URL), // Your host URL
+		clientOptions...,
+	)
+
 	if err != nil {
 		log.Panic().Msgf("failed to connect to %s", adapter.URL)
 	}
