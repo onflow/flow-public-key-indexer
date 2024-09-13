@@ -12,7 +12,7 @@ import (
 
 func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) error {
 	ctx := context.Background()
-	batchSize := 1
+	batchSize := 1000
 
 	for {
 		// Fetch a batch of unique addresses from the database
@@ -20,8 +20,6 @@ func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) er
 		if err != nil {
 			return fmt.Errorf("failed to fetch addresses: %w", err)
 		}
-
-		log.Debug().Msgf("addresses: %v", addresses)
 
 		if len(addresses) == 0 {
 			log.Info().Msg("No more addresses to process. Backfill complete.")
