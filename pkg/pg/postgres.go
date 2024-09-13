@@ -290,12 +290,12 @@ func (s *Store) UpdatePublicKeyAccounts(records []model.PublicKeyAccountIndexer)
 	}
 	return nil
 }
-
 func (s *Store) GetUniqueAddressesWithoutAlgos(limit int) ([]string, error) {
 	var addresses []string
 	err := s.db.Table("publickeyindexer").
 		Select("DISTINCT account").
 		Where("sigalgo IS NULL OR hashalgo IS NULL").
+		Order("account ASC"). // Add the sorting order here, use DESC for descending order
 		Limit(limit).
 		Pluck("account", &addresses).Error
 	return addresses, err
