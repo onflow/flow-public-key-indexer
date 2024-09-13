@@ -62,7 +62,8 @@ func (s Store) Stats() model.PublicKeyStatus {
 func (s Store) BatchInsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) (int64, error) {
 	batchSize := len(publicKeys)
 	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
-		DoNothing: true,
+		Columns:   []clause.Column{{Name: "account"}, {Name: "keyid"}, {Name: "publickey"}},
+		DoUpdates: clause.AssignmentColumns([]string{"weight", "sigalgo", "hashalgo"}),
 	}).CreateInBatches(publicKeys, batchSize)
 	if result.Error != nil {
 		return 0, result.Error
