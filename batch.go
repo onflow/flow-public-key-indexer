@@ -32,6 +32,7 @@ import (
 	"github.com/onflow/flow-go-sdk/access"
 	"github.com/onflow/flow-go-sdk/access/grpc"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	grpcOpts "google.golang.org/grpc"
 )
 
@@ -180,7 +181,7 @@ func ProcessAddressChannels(
 						log.Error().Err(err).Msg("Batch Bulk Low-priority Could not get current block height from default flow client")
 						continue
 					}
-					accountKeys, err := ProcessAddressWithScript(ctx, config, accountAddresses, log, client, fetchSlowdown, currentBlock.Height)
+					accountKeys, err := ProcessAddressWithScript(ctx, config, accountAddresses, log, client, fetchSlowdown)
 					if err != nil {
 						log.Error().Err(err).Msgf("Batch Bulk Low-priority Failed Script Load, w(%d) addresses with script", workerID)
 						continue
@@ -290,6 +291,7 @@ func GetHashingAlgoIndex(hashAlgo string) int {
 	case "KECCAK_256":
 		return 6
 	default:
+		log.Warn().Msgf("Batch Unknown hashing algorithm: %v", hashAlgo)
 		return 0 // Unknown
 	}
 }
@@ -303,6 +305,7 @@ func GetSignatureAlgoIndex(sigAlgo string) int {
 	case "BLS_BLS12_381":
 		return 3
 	default:
+		log.Warn().Msgf("Batch Unknown signature algorithm: %v", sigAlgo)
 		return 0
 	}
 }

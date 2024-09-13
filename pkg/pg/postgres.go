@@ -263,6 +263,7 @@ func GetHashingAlgoString(hashAlgoInt int) string {
 	case 6:
 		return "KECCAK_256"
 	default:
+		log.Warn().Msgf("Unknown hashing algorithm: %v", hashAlgoInt)
 		return "Unknown"
 	}
 }
@@ -275,6 +276,7 @@ func GetSignatureAlgoString(sigAlgoInt int) string {
 	case 3:
 		return "BLS_BLS12_381"
 	default:
+		log.Warn().Msgf("Unknown signature algorithm: %v", sigAlgoInt)
 		return "Unknown"
 	}
 }

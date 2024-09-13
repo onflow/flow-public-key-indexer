@@ -12,7 +12,7 @@ import (
 
 func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) error {
 	ctx := context.Background()
-	batchSize := 10
+	batchSize := 1
 
 	for {
 		// Fetch a batch of unique addresses from the database
@@ -34,15 +34,8 @@ func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) er
 			flowAddresses[i] = flow.HexToAddress(addr)
 		}
 
-		// Process the batch
-		currentBlock, err := flowClient.Client.GetLatestBlockHeader(ctx, true)
-		if err != nil {
-			return fmt.Errorf("failed to get latest block header: %w", err)
-		}
+		updatedRecords, err := ProcessAddressWithScript(ctx, params, flowAddresses, log.Logger, flowClient.Client, params.FetchSlowDownMs)
 
-		updatedRecords, err := ProcessAddressWithScript(ctx, params, flowAddresses, log.Logger, flowClient.Client, params.FetchSlowDownMs, currentBlock.Height)
-
-		log.Debug().Msgf("updatedRecords: %v", updatedRecords)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to process addresses")
 			// Continue with the next batch instead of returning an error

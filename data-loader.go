@@ -71,7 +71,6 @@ func ProcessAddressWithScript(
 	log zerolog.Logger,
 	flowClient access.Client,
 	fetchSlowDown int,
-	currentBlockHeight uint64,
 ) ([]model.PublicKeyAccountIndexer, error) {
 	script := []byte(GetAccountKeys)
 	accountsCadenceValues := convertAddresses(addresses)
