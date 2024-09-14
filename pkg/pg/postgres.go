@@ -59,6 +59,7 @@ func (s Store) Stats() model.PublicKeyStatus {
 		LoadedToBlock: status.LoadedToBlock,
 	}
 }
+
 func (s Store) BatchInsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) (int64, error) {
 	if len(publicKeys) == 0 {
 		return 0, nil
@@ -303,4 +304,44 @@ func (s *Store) GetUniqueAddressesWithoutAlgos(limit int, ignoreList []string) (
 	}
 
 	return addresses, err
+}
+
+func (s Store) LargeBatchInsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) (int64, error) {
+	if len(publicKeys) == 0 {
+		return 0, nil
+	}
+
+	// Estimate the number of parameters per record (fields in PublicKeyAccountIndexer)
+	// Example: let's assume 6 fields per record
+	const maxParameters = 65535
+	const paramsPerRecord = 6
+
+	// Calculate max number of records we can insert in one batch without exceeding the parameter limit
+	maxBatchSize := maxParameters / paramsPerRecord
+
+	var totalRowsAffected int64
+	for i := 0; i < len(publicKeys); i += maxBatchSize {
+		end := i + maxBatchSize
+		if end > len(publicKeys) {
+			end = len(publicKeys)
+		}
+
+		// Batch insert the slice
+		result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "account"},
+				{Name: "keyid"},
+				{Name: "publickey"},
+			}, // Detect conflict based on these three columns
+			DoUpdates: clause.AssignmentColumns([]string{"sigalgo", "hashalgo"}), // Update only SigAlgo and HashAlgo on conflict
+		}).CreateInBatches(publicKeys[i:end], end-i)
+
+		if result.Error != nil {
+			return totalRowsAffected, result.Error
+		}
+
+		totalRowsAffected += result.RowsAffected
+	}
+
+	return totalRowsAffected, nil
 }

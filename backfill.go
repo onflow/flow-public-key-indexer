@@ -13,7 +13,7 @@ import (
 
 func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) error {
 	ctx := context.Background()
-	batchSize := 1000
+	batchSize := 100
 	ignoreList := []string{}
 
 	for {
@@ -35,9 +35,8 @@ func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) er
 			flowAddresses[i] = flow.HexToAddress(addr)
 		}
 
-		log.Debug().Msgf("Processing %d addresses, %v", len(flowAddresses), flowAddresses)
 		updatedRecords, err := ProcessAddressWithScript(ctx, params, flowAddresses, log.Logger, flowClient.Client, params.FetchSlowDownMs)
-
+		log.Debug().Msgf("updatedRecords: %v", len(updatedRecords))
 		ignoreList = extractAddresses(addresses, updatedRecords, ignoreList)
 
 		if err != nil {
@@ -47,10 +46,13 @@ func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) er
 		}
 
 		// Update the database with the new information
-		if err := db.InsertPublicKeyAccounts(ctx, updatedRecords); err != nil {
+		if count, err := db.LargeBatchInsertPublicKeyAccounts(ctx, updatedRecords); err != nil {
 			log.Error().Err(err).Msg("Failed to update records")
 			// Continue with the next batch instead of returning an error
 			continue
+		} else {
+			// Log the count of records that were saved
+			log.Debug().Msgf("Records Saved count: %v", count)
 		}
 
 	}
