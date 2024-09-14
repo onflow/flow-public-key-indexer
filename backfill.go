@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 
+	"example/flow-key-indexer/model"
 	"example/flow-key-indexer/pkg/pg"
 	"fmt"
 
@@ -13,10 +14,12 @@ import (
 func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) error {
 	ctx := context.Background()
 	batchSize := 1000
+	ignoreList := []string{}
 
 	for {
 		// Fetch a batch of unique addresses from the database
-		addresses, err := db.GetUniqueAddressesWithoutAlgos(batchSize)
+		log.Debug().Msgf("ignoreList: %v", ignoreList)
+		addresses, err := db.GetUniqueAddressesWithoutAlgos(batchSize, ignoreList)
 		if err != nil {
 			return fmt.Errorf("failed to fetch addresses: %w", err)
 		}
@@ -32,7 +35,10 @@ func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) er
 			flowAddresses[i] = flow.HexToAddress(addr)
 		}
 
+		log.Debug().Msgf("Processing %d addresses, %v", len(flowAddresses), flowAddresses)
 		updatedRecords, err := ProcessAddressWithScript(ctx, params, flowAddresses, log.Logger, flowClient.Client, params.FetchSlowDownMs)
+
+		ignoreList = extractAddresses(addresses, updatedRecords, ignoreList)
 
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to process addresses")
@@ -50,4 +56,24 @@ func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) er
 	}
 
 	return nil
+}
+
+// return addresses that do not have an update record to be added to the ignore list
+func extractAddresses(addresses []string, updateRecords []model.PublicKeyAccountIndexer, ignoreList []string) []string {
+	// Use a map to make searching through updateRecords more efficient
+	recordMap := make(map[string]bool)
+
+	// Populate the map with the addresses from updateRecords
+	for _, record := range updateRecords {
+		recordMap[record.Account] = true
+	}
+
+	// Iterate through addresses and check if they exist in the recordMap
+	for _, address := range addresses {
+		if _, found := recordMap[address]; !found {
+			ignoreList = append(ignoreList, address)
+		}
+	}
+
+	return ignoreList
 }

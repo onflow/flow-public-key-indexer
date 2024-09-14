@@ -112,25 +112,6 @@ func (d *Database) TruncateAll() error {
 		return nil
 	})
 }
-func (d *Database) RunInTransaction(ctx context.Context, next func(ctx context.Context) error) error {
-	gormTx := d.DB.Begin()
-	if gormTx.Error != nil {
-		return gormTx.Error
-	}
-
-	defer func() {
-		// Recover from panic and handle transaction rollback or commit
-		if r := recover(); r != nil {
-			gormTx.Rollback()
-			panic(r) // Re-panic after rollback
-		} else if err := gormTx.Commit().Error; err != nil {
-			gormTx.Rollback()
-		}
-	}()
-
-	// Execute the provided function within the transaction
-	return convertError(next(context.WithValue(ctx, "gorm:db", gormTx)))
-}
 
 func ToURL(port int, ssl bool, username, password, db, host string) string {
 	str := "postgres://"
@@ -187,3 +168,7 @@ func (d *Database) MigrateDatabase() error {
 	log.Info().Msg("Database migration completed successfully")
 	return nil
 }
+
+type contextKey string
+
+const gormDBKey contextKey = "gorm:db"
