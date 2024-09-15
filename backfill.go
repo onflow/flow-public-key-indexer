@@ -18,7 +18,7 @@ func backfillPublicKeys(ctx context.Context, flowAddresses []flow.Address, db *p
 		log.Info().Msg("No more addresses to process. Backfill complete.")
 		return nil
 	}
-	log.Debug().Msgf("Backfilling %v", len(flowAddresses))
+	log.Info().Msgf("Batch Bulk Backfilling %v", len(flowAddresses))
 	updatedRecords, err := ProcessAddressWithScript(ctx, params, flowAddresses, log.Logger, client, params.FetchSlowDownMs)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to process addresses, processing them individually")
@@ -30,6 +30,7 @@ func backfillPublicKeys(ctx context.Context, flowAddresses []flow.Address, db *p
 				continue
 			}
 			if len(updatedRecords) == 0 {
+				log.Info().Msgf("No updated records for %v", addr)
 				continue
 			}
 			log.Debug().Msgf("updatedRecords: %v", updatedRecords)
@@ -43,7 +44,7 @@ func backfillPublicKeys(ctx context.Context, flowAddresses []flow.Address, db *p
 
 	} else {
 		if len(updatedRecords) == 0 {
-			log.Debug().Msgf("No updated records to process, %v", flowAddresses)
+			log.Info().Msgf("No updated records to process, %v", flowAddresses)
 			return nil
 		}
 		_, err := generateAndSaveCopyString(ctx, db, updatedRecords)

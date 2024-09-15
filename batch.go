@@ -188,7 +188,7 @@ func ProcessAddressChannels(
 						if len(accountAddresses) == 0 {
 							continue
 						}
-						log.Info().Msgf("Batch Bulk Low-priority: %d addresses", len(accountAddresses))
+						log.Debug().Msgf("Batch Bulk Low-priority: %d addresses", len(accountAddresses))
 
 						err := backfillPublicKeys(ctx, accountAddresses, db, client, config)
 						if err != nil {
