@@ -2,6 +2,7 @@ package pg
 
 import (
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -21,16 +22,20 @@ func (cl CustomLogger) Printf(format string, v ...interface{}) {
 }
 
 func getDSN(conf DatabaseConfig) string {
+	u := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(conf.User, conf.Password),
+		Host:   fmt.Sprintf("%s:%d", conf.Host, conf.Port),
+		Path:   conf.Name,
+	}
 
-	dsn := fmt.Sprintf(
-		"host=%s user=%s password=%s dbname=%s port=%d sslmode=disable",
-		conf.Host,
-		conf.User,
-		conf.Password,
-		conf.Name,
-		conf.Port,
-	)
-	return dsn
+	// Add query parameters if necessary
+	query := url.Values{}
+	query.Add("sslmode", "disable")
+	u.RawQuery = query.Encode()
+
+	// Return the DSN string
+	return u.String()
 }
 
 // connectPG will attempt to connect to a Postgres database.

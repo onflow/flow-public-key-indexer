@@ -7,7 +7,7 @@ toolchain go1.22.6
 require (
 	github.com/golang-migrate/migrate v3.5.4+incompatible
 	github.com/jackc/pgx/v5 v5.7.1
-	github.com/joho/godotenv v1.4.0
+	github.com/joho/godotenv v1.5.1
 	google.golang.org/grpc v1.66.2
 	gorm.io/driver/postgres v1.3.10
 	gorm.io/gorm v1.23.10
