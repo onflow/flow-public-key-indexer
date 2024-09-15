@@ -88,7 +88,7 @@ func (a *App) Initialize(params Params) {
 }
 
 func (a *App) Run() {
-	bufferSize := 1000
+	bufferSize := 10
 	ctx := context.Background()
 	highPriChan := make(chan []flow.Address)
 	lowPriAddressChan := make(chan []flow.Address, bufferSize)
