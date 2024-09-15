@@ -399,7 +399,6 @@ func (s Store) LoadPublicKeyIndexerFromReader(ctx context.Context, file io.Reade
 		log.Error().Err(err).Msg("Error during COPY FROM STDIN")
 		return 0, err
 	}
-	log.Info().Msgf("Batch Bulk Loaded %d rows", rowsCopied.RowsAffected())
 
 	// Insert data from the temp table into the main table
 	insertQuery := `
@@ -415,7 +414,7 @@ func (s Store) LoadPublicKeyIndexerFromReader(ctx context.Context, file io.Reade
 	}
 
 	rowsAffected := cmdTag.RowsAffected()
-	log.Debug().Msgf("Rows affected: %d", rowsAffected)
+	log.Info().Msgf("Batch Bulk Loaded %d rows, %d affected", rowsCopied.RowsAffected(), rowsAffected)
 
 	return rowsAffected, nil
 }
