@@ -7,7 +7,6 @@ import (
 	"example/flow-key-indexer/utils"
 	"fmt"
 	"io"
-	"net/url"
 
 	_ "github.com/golang-migrate/migrate/database/postgres"
 	_ "github.com/golang-migrate/migrate/source/file"
@@ -22,6 +21,7 @@ type Store struct {
 	conf   DatabaseConfig
 	logger zerolog.Logger
 	db     *Database
+	dsn    string
 	done   chan struct{} // Semaphore channel to limit concurrencyj
 }
 
@@ -29,23 +29,9 @@ func NewStore(conf DatabaseConfig, logger zerolog.Logger) *Store {
 	return &Store{
 		conf:   conf,
 		logger: logger,
+		dsn:    getDSN(conf),
 		done:   make(chan struct{}, 1), // Initialize semaphore with capacity 1
 	}
-}
-
-func (s Store) getDSN() string {
-
-	username := url.QueryEscape(s.conf.User)
-	pwd := url.QueryEscape(s.conf.Password)
-	host := s.conf.Host
-	port := s.conf.Port
-	user := username
-	password := pwd
-	dbName := s.conf.Name
-
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
-		user, password, host, port, dbName)
-	return dsn
 }
 
 func (s *Store) Start(purgeOnStart bool) error {
@@ -364,7 +350,7 @@ func (s Store) GenerateCopyStringForPublicKeyAccounts(ctx context.Context, publi
 func (s Store) LoadPublicKeyIndexerFromReader(ctx context.Context, file io.Reader) (int64, error) {
 
 	// Create a pgx pool or connection
-	pgxConn, err := pgxpool.New(ctx, s.getDSN())
+	pgxConn, err := pgxpool.New(ctx, s.dsn)
 	if err != nil {
 		log.Error().Err(err).Msg("Error creating pgx connection")
 		return 0, err

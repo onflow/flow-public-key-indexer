@@ -20,17 +20,23 @@ func (cl CustomLogger) Printf(format string, v ...interface{}) {
 	cl.Zerologger.Info().Msgf(format, v...)
 }
 
+func getDSN(conf DatabaseConfig) string {
+
+	dsn := fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=%s port=%d sslmode=disable",
+		conf.Host,
+		conf.User,
+		conf.Password,
+		conf.Name,
+		conf.Port,
+	)
+	return dsn
+}
+
 // connectPG will attempt to connect to a Postgres database.
 func connectPG(conf DatabaseConfig) (*gorm.DB, error) {
 	cfg := postgres.Config{
-		DSN: fmt.Sprintf(
-			"host=%s user=%s password=%s dbname=%s port=%d sslmode=disable",
-			conf.Host,
-			conf.User,
-			conf.Password,
-			conf.Name,
-			conf.Port,
-		),
+		DSN: getDSN(conf),
 	}
 
 	dial := postgres.New(cfg)
