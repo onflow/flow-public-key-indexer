@@ -218,7 +218,11 @@ func (p *AddressProvider) GenerateAddressBatches(addressChan chan<- []flow.Addre
 		if end > len(allAddresses) {
 			end = len(allAddresses)
 		}
-		batch := allAddresses[i:end]
+		// Create a new slice and copy the data
+		batchSize := end - i
+		batch := make([]flow.Address, batchSize)
+		copy(batch, allAddresses[i:end])
+
 		if len(batch) == 0 {
 			log.Warn().Msgf("Batch is empty, end %d", end)
 			continue

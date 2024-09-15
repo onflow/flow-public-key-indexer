@@ -22,6 +22,7 @@ import (
 	"context"
 	_ "embed"
 	"example/flow-key-indexer/model"
+	"example/flow-key-indexer/pkg/pg"
 	"example/flow-key-indexer/utils"
 	"fmt"
 	"time"
@@ -73,17 +74,17 @@ func ProcessAddressChannels(
 	client access.Client,
 	highPriorityChan chan []flow.Address,
 	lowPriorityChan chan []flow.Address,
-	insertionHandler func(context.Context, []model.PublicKeyAccountIndexer) error,
+	db *pg.Store,
 	config Params,
 ) error {
 	if client == nil {
 		return fmt.Errorf("batch Failed to initialize flow client")
 	}
-	lowPriorityWorkerCount := 2
 	bufferSize := 1000
 	resultsChan := make(chan []model.PublicKeyAccountIndexer, bufferSize)
 	fetchSlowdown := config.FetchSlowDownMs
 
+	insertionHandler := db.InsertPublicKeyAccounts
 	// Launch a goroutine to handle results
 	go func() {
 		log.Debug().Msg("Batch Results channel handler started")
@@ -151,50 +152,52 @@ func ProcessAddressChannels(
 	}()
 
 	// Low-priority workers
-	for i := 1; i <= lowPriorityWorkerCount; i++ {
-		go func(workerID int) {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Error().Msgf("Batch Low-priority worker %d recovered from panic: %v", workerID, r)
-				}
-			}()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Msgf("Batch Low-priority worker recovered from panic: %v", r)
+			}
+		}()
 
-			for {
-				select {
-				case <-ctx.Done():
-					log.Info().Msgf("Batch Context done, exiting low-priority worker %d", workerID)
+		for {
+			select {
+			case <-ctx.Done():
+				log.Info().Msgf("Batch Context done, exiting low-priority")
+				return
+			case accountAddresses, ok := <-lowPriorityChan:
+				if !ok {
+					log.Warn().Msgf("Batch Bulk Low-priority channel closed, exiting")
 					return
-				case accountAddresses, ok := <-lowPriorityChan:
-					if !ok {
-						log.Warn().Msgf("Batch Bulk Low-priority channel closed, worker %d exiting", workerID)
+				}
+				if len(accountAddresses) == 0 {
+					continue
+				}
+				log.Debug().Msgf("Batch Bulk Low-priority processing %d addresses, q(%d)", len(accountAddresses), len(lowPriorityChan))
+
+				for {
+					select {
+					case <-ctx.Done():
+						log.Info().Msgf("Batch Context done, exiting low-priority")
 						return
-					}
-					if len(accountAddresses) == 0 {
-						continue
-					}
-					start := time.Now()
-					log.Debug().Msgf("Batch Bulk Low-priority worker %d processing %d addresses, q(%d)", workerID, len(accountAddresses), len(lowPriorityChan))
-					// second worker gets longer fetchSlowdown
-					fetchSlowdown = fetchSlowdown * workerID
-					currentBlock, err := client.GetLatestBlockHeader(ctx, true)
-					if err != nil {
-						log.Error().Err(err).Msg("Batch Bulk Low-priority Could not get current block height from default flow client")
-						continue
-					}
-					accountKeys, err := ProcessAddressWithScript(ctx, config, accountAddresses, log, client, fetchSlowdown)
-					if err != nil {
-						log.Error().Err(err).Msgf("Batch Bulk Low-priority Failed Script Load, w(%d) addresses with script", workerID)
-						continue
-					}
-					duration := time.Since(start)
-					log.Info().Msgf("Batch Bulk Low-priority Finished Script Load, duration(%f) w(%d) %v, block %d, q(%d)", duration.Seconds(), workerID, len(accountKeys), currentBlock.Height, len(lowPriorityChan))
-					if len(accountKeys) > 0 {
-						resultsChan <- accountKeys
+					case accountAddresses, ok := <-lowPriorityChan:
+						if !ok {
+							log.Warn().Msgf("Batch Bulk Low-priority channel closed, exiting")
+							return
+						}
+						if len(accountAddresses) == 0 {
+							continue
+						}
+						log.Debug().Msgf("Batch Bulk Low-priority processing %d addresses, q(%d)", len(accountAddresses), len(lowPriorityChan))
+
+						err := backfillPublicKeys(ctx, accountAddresses, db, client, config)
+						if err != nil {
+							log.Error().Err(err).Msgf("Batch Low-priority failed to backfill addresses %d", len(accountAddresses))
+						}
 					}
 				}
 			}
-		}(i)
-	}
+		}
+	}()
 
 	return nil
 }

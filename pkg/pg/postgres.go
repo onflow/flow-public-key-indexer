@@ -1,12 +1,17 @@
 package pg
 
 import (
+	"bytes"
 	"context"
 	"example/flow-key-indexer/model"
 	"example/flow-key-indexer/utils"
+	"fmt"
+	"io"
+	"net/url"
 
 	_ "github.com/golang-migrate/migrate/database/postgres"
 	_ "github.com/golang-migrate/migrate/source/file"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
@@ -17,7 +22,7 @@ type Store struct {
 	conf   DatabaseConfig
 	logger zerolog.Logger
 	db     *Database
-	done   chan struct{} // Semaphore channel to limit concurrency
+	done   chan struct{} // Semaphore channel to limit concurrencyj
 }
 
 func NewStore(conf DatabaseConfig, logger zerolog.Logger) *Store {
@@ -26,6 +31,21 @@ func NewStore(conf DatabaseConfig, logger zerolog.Logger) *Store {
 		logger: logger,
 		done:   make(chan struct{}, 1), // Initialize semaphore with capacity 1
 	}
+}
+
+func (s Store) getDSN() string {
+
+	username := url.QueryEscape(s.conf.User)
+	pwd := url.QueryEscape(s.conf.Password)
+	host := s.conf.Host
+	port := s.conf.Port
+	user := username
+	password := pwd
+	dbName := s.conf.Name
+
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
+		user, password, host, port, dbName)
+	return dsn
 }
 
 func (s *Store) Start(purgeOnStart bool) error {
@@ -306,42 +326,110 @@ func (s *Store) GetUniqueAddressesWithoutAlgos(limit int, ignoreList []string) (
 	return addresses, err
 }
 
-func (s Store) LargeBatchInsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) (int64, error) {
+// Generate COPY-compatible string for batch inserting/updating data into PostgreSQL
+func (s Store) GenerateCopyStringForPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) (string, error) {
 	if len(publicKeys) == 0 {
-		return 0, nil
+		return "", nil
 	}
 
-	// Estimate the number of parameters per record (fields in PublicKeyAccountIndexer)
-	// Example: let's assume 6 fields per record
-	const maxParameters = 65535
-	const paramsPerRecord = 6
+	var buffer bytes.Buffer
+	const batchSize = 10000 // You can adjust this based on performance
+	fieldDelimiter := "\t"  // Tab delimiter for the COPY command (adjust based on requirements)
+	recordDelimiter := "\n"
 
-	// Calculate max number of records we can insert in one batch without exceeding the parameter limit
-	maxBatchSize := maxParameters / paramsPerRecord
-
-	var totalRowsAffected int64
-	for i := 0; i < len(publicKeys); i += maxBatchSize {
-		end := i + maxBatchSize
+	for i := 0; i < len(publicKeys); i += batchSize {
+		end := i + batchSize
 		if end > len(publicKeys) {
 			end = len(publicKeys)
 		}
 
-		// Batch insert the slice
-		result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
-			Columns: []clause.Column{
-				{Name: "account"},
-				{Name: "keyid"},
-				{Name: "publickey"},
-			}, // Detect conflict based on these three columns
-			DoUpdates: clause.AssignmentColumns([]string{"sigalgo", "hashalgo"}), // Update only SigAlgo and HashAlgo on conflict
-		}).CreateInBatches(publicKeys[i:end], end-i)
-
-		if result.Error != nil {
-			return totalRowsAffected, result.Error
+		// Iterate through the batch and create the COPY-compatible string
+		for _, key := range publicKeys[i:end] {
+			// Generate the row, assuming PublicKeyAccountIndexer has these fields
+			row := fmt.Sprintf("%s%s%d%s%s%s%d%s%d%s%d%s",
+				key.Account, fieldDelimiter,
+				key.KeyId, fieldDelimiter,
+				key.PublicKey, fieldDelimiter,
+				key.Weight, fieldDelimiter,
+				key.SigAlgo, fieldDelimiter,
+				key.HashAlgo, recordDelimiter)
+			// Append the row to the buffer
+			buffer.WriteString(row)
 		}
-
-		totalRowsAffected += result.RowsAffected
 	}
 
-	return totalRowsAffected, nil
+	return buffer.String(), nil
+}
+
+func (s Store) LoadPublicKeyIndexerFromReader(ctx context.Context, file io.Reader) (int64, error) {
+
+	// Create a pgx pool or connection
+	pgxConn, err := pgxpool.New(ctx, s.getDSN())
+	if err != nil {
+		log.Error().Err(err).Msg("Error creating pgx connection")
+		return 0, err
+	}
+	defer pgxConn.Close()
+
+	// Begin a transaction
+	tx, err := pgxConn.Begin(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Error beginning transaction")
+		return 0, err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback(ctx)
+		} else {
+			err = tx.Commit(ctx)
+			if err != nil {
+				log.Error().Err(err).Msg("Error committing transaction")
+			}
+		}
+	}()
+
+	// Create the temporary table
+	createTempTableQuery := `
+        CREATE TEMP TABLE temp_publickeyindexer (
+            account TEXT NOT NULL,
+            keyid INT NOT NULL,
+            publickey TEXT NOT NULL,
+            sigalgo INT,
+            hashalgo INT,
+            weight INT
+        ) ON COMMIT DROP;
+    `
+	_, err = tx.Exec(ctx, createTempTableQuery)
+	if err != nil {
+		log.Error().Err(err).Msg("Error creating temp table")
+		return 0, err
+	}
+
+	// Perform the COPY FROM STDIN operation
+	copyFromQuery := `COPY temp_publickeyindexer (account, keyid, publickey, weight, sigalgo, hashalgo) FROM STDIN WITH (FORMAT csv, DELIMITER E'\t', HEADER false);`
+	pgConn := tx.Conn().PgConn()
+	rowsCopied, err := pgConn.CopyFrom(ctx, file, copyFromQuery)
+	if err != nil {
+		log.Error().Err(err).Msg("Error during COPY FROM STDIN")
+		return 0, err
+	}
+	log.Debug().Msgf("Copied %d rows", rowsCopied.RowsAffected())
+
+	// Insert data from the temp table into the main table
+	insertQuery := `
+        INSERT INTO publickeyindexer (account, keyid, publickey, weight, sigalgo, hashalgo)
+        SELECT account, keyid, publickey, weight, sigalgo, hashalgo FROM temp_publickeyindexer
+        ON CONFLICT (account, keyid, publickey)
+        DO UPDATE SET sigalgo = EXCLUDED.sigalgo, hashalgo = EXCLUDED.hashalgo;
+    `
+	cmdTag, err := tx.Exec(ctx, insertQuery)
+	if err != nil {
+		log.Error().Err(err).Msg("Error executing INSERT INTO publickeyindexer")
+		return 0, err
+	}
+
+	rowsAffected := cmdTag.RowsAffected()
+	log.Debug().Msgf("Rows affected: %d", rowsAffected)
+
+	return rowsAffected, nil
 }

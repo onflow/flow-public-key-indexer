@@ -2,80 +2,75 @@ package main
 
 import (
 	"context"
+	"strings"
 
 	"example/flow-key-indexer/model"
 	"example/flow-key-indexer/pkg/pg"
-	"fmt"
 
 	"github.com/onflow/flow-go-sdk"
+	"github.com/onflow/flow-go-sdk/access"
 	"github.com/rs/zerolog/log"
 )
 
-func backfillPublicKeys(db *pg.Store, flowClient *FlowAdapter, params Params) error {
-	ctx := context.Background()
-	batchSize := 100
-	ignoreList := []string{}
+func backfillPublicKeys(ctx context.Context, flowAddresses []flow.Address, db *pg.Store, client access.Client, params Params) error {
 
-	for {
-		// Fetch a batch of unique addresses from the database
-		log.Debug().Msgf("ignoreList: %v", ignoreList)
-		addresses, err := db.GetUniqueAddressesWithoutAlgos(batchSize, ignoreList)
+	if len(flowAddresses) == 0 {
+		log.Info().Msg("No more addresses to process. Backfill complete.")
+		return nil
+	}
+
+	updatedRecords, err := ProcessAddressWithScript(ctx, params, flowAddresses, log.Logger, client, params.FetchSlowDownMs)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to process addresses, processing them individually")
+		// loop over each address and process them individually
+		for _, addr := range flowAddresses {
+			updatedRecords, err := ProcessAddressWithScript(ctx, params, []flow.Address{addr}, log.Logger, client, params.FetchSlowDownMs)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to process address")
+				continue
+			}
+			if len(updatedRecords) == 0 {
+				continue
+			}
+			log.Debug().Msgf("updatedRecords: %v", updatedRecords)
+			recordCount, err := generateAndSaveCopyString(ctx, db, updatedRecords)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to generate and save copy string")
+				continue
+			}
+			log.Info().Msgf("Records loaded: %v", recordCount)
+		}
+		return nil
+
+	} else {
+		if len(updatedRecords) == 0 {
+			log.Debug().Msgf("No updated records to process, %v", flowAddresses)
+			return nil
+		}
+		recordCount, err := generateAndSaveCopyString(ctx, db, updatedRecords)
 		if err != nil {
-			return fmt.Errorf("failed to fetch addresses: %w", err)
+			log.Error().Err(err).Msg("Failed to generate and save copy string")
+			return err
 		}
-
-		if len(addresses) == 0 {
-			log.Info().Msg("No more addresses to process. Backfill complete.")
-			break
-		}
-
-		// Convert string addresses to flow.Address
-		flowAddresses := make([]flow.Address, len(addresses))
-		for i, addr := range addresses {
-			flowAddresses[i] = flow.HexToAddress(addr)
-		}
-
-		updatedRecords, err := ProcessAddressWithScript(ctx, params, flowAddresses, log.Logger, flowClient.Client, params.FetchSlowDownMs)
-		log.Debug().Msgf("updatedRecords: %v", len(updatedRecords))
-		ignoreList = extractAddresses(addresses, updatedRecords, ignoreList)
-
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to process addresses")
-			// Continue with the next batch instead of returning an error
-			continue
-		}
-
-		// Update the database with the new information
-		if count, err := db.LargeBatchInsertPublicKeyAccounts(ctx, updatedRecords); err != nil {
-			log.Error().Err(err).Msg("Failed to update records")
-			// Continue with the next batch instead of returning an error
-			continue
-		} else {
-			// Log the count of records that were saved
-			log.Debug().Msgf("Records Saved count: %v", count)
-		}
-
+		log.Info().Msgf("Records loaded: %v", recordCount)
 	}
 
 	return nil
 }
 
-// return addresses that do not have an update record to be added to the ignore list
-func extractAddresses(addresses []string, updateRecords []model.PublicKeyAccountIndexer, ignoreList []string) []string {
-	// Use a map to make searching through updateRecords more efficient
-	recordMap := make(map[string]bool)
-
-	// Populate the map with the addresses from updateRecords
-	for _, record := range updateRecords {
-		recordMap[record.Account] = true
+func generateAndSaveCopyString(ctx context.Context, db *pg.Store, updatedRecords []model.PublicKeyAccountIndexer) (int64, error) {
+	copyString, err := db.GenerateCopyStringForPublicKeyAccounts(ctx, updatedRecords)
+	if err != nil {
+		return 0, err
 	}
+	// Create an io.Reader from the copyString
+	copyReader := strings.NewReader(copyString)
 
-	// Iterate through addresses and check if they exist in the recordMap
-	for _, address := range addresses {
-		if _, found := recordMap[address]; !found {
-			ignoreList = append(ignoreList, address)
-		}
+	log.Debug().Msgf("updatedRecords: %v", len(updatedRecords))
+
+	rowsCopied, err := db.LoadPublicKeyIndexerFromReader(ctx, copyReader)
+	if err != nil {
+		return 0, err
 	}
-
-	return ignoreList
+	return rowsCopied, nil
 }
