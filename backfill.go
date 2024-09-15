@@ -30,7 +30,7 @@ func backfillPublicKeys(ctx context.Context, flowAddresses []flow.Address, db *p
 				continue
 			}
 			if len(updatedRecords) == 0 {
-				log.Info().Msgf("No updated records for %v", addr)
+				log.Debug().Msgf("No updated records for %v", addr)
 				continue
 			}
 			log.Debug().Msgf("updatedRecords: %v", updatedRecords)
@@ -44,7 +44,7 @@ func backfillPublicKeys(ctx context.Context, flowAddresses []flow.Address, db *p
 
 	} else {
 		if len(updatedRecords) == 0 {
-			log.Info().Msgf("No updated records to process, %v", flowAddresses)
+			log.Debug().Msgf("No updated records to process, %v", flowAddresses)
 			return nil
 		}
 		_, err := generateAndSaveCopyString(ctx, db, updatedRecords)
