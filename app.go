@@ -88,20 +88,22 @@ func (a *App) Initialize(params Params) {
 }
 
 func (a *App) Run() {
-	bufferSize := 10
 	ctx := context.Background()
 	highPriChan := make(chan []flow.Address)
-	lowPriAddressChan := make(chan []flow.Address, bufferSize)
+	lowPriAddressChan := make(chan []flow.Address)
 	currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(context.Background(), true)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Could not get current block height")
+		return
 	}
 	if currentBlock == nil {
 		log.Error().Msg("Could not get current block height")
+		return
 	}
 	if currentBlock.Height == 0 {
 		log.Error().Msg("Could not get current block height")
+		return
 	}
 
 	startingBlockHeight := currentBlock.Height - uint64(a.p.MaxBlockRange)
@@ -109,10 +111,6 @@ func (a *App) Run() {
 	a.DB.UpdateLoadedBlockHeight(startingBlockHeight)
 
 	log.Debug().Msgf("Current block from server %v", currentBlock.Height)
-
-	if err != nil {
-		log.Error().Err(err).Msg("Could not get current block height")
-	}
 
 	// start up process to handle addresses that are put in addressChan channel
 	ProcessAddressChannels(ctx,
@@ -146,19 +144,6 @@ func (a *App) loadIncrementalData(addressChan chan []flow.Address) {
 			a.incrementalLoad(addressChan)
 		}
 	}()
-}
-
-func (a *App) waitForAddressChanToReduce(addressChan chan []flow.Address, pause time.Duration) {
-	ticker := time.NewTicker(pause)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		log.Debug().Msgf("Address channel size %d", len(addressChan))
-		if len(addressChan) < 10 {
-			log.Debug().Msg("Address channel has cleared enough, run another bulk loader")
-			return
-		}
-	}
 }
 
 func (a *App) waitForChannelsToUpdateDistinct(ctx context.Context, highChan chan []flow.Address, lowChan chan []flow.Address, pause time.Duration, updateDistinctCount func()) {
@@ -208,8 +193,6 @@ func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 		duration := time.Since(start)
 		log.Info().Msgf("Bulk End Load, duration %f min, %v", duration.Minutes(), currentBlock.Height)
 
-		// wait for the address channel to reduce before running another bulk load
-		a.waitForAddressChanToReduce(lowPrioAddressChan, pause)
 		// Add a delay if needed to prevent it from running too frequently
 		time.Sleep(time.Duration(a.p.SyncDataPolIntervalMin) * time.Minute) // Adjust the sleep duration as needed
 	}

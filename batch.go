@@ -137,7 +137,7 @@ func ProcessAddressChannels(
 		for {
 			select {
 			case <-ctx.Done():
-				log.Info().Msg("Batch Context done, exiting high-priority worker")
+				log.Info().Msg("Batch High-priority Context done, exiting high-priority worker")
 				return
 			case accountAddresses, ok := <-highPriorityChan:
 				if !ok {
@@ -153,6 +153,7 @@ func ProcessAddressChannels(
 
 	// Low-priority workers
 	go func() {
+		log.Info().Msgf("Batch Bulk Low-priority started")
 		defer func() {
 			if r := recover(); r != nil {
 				log.Error().Msgf("Batch Low-priority worker recovered from panic: %v", r)
@@ -162,7 +163,7 @@ func ProcessAddressChannels(
 		for {
 			select {
 			case <-ctx.Done():
-				log.Info().Msgf("Batch Context done, exiting low-priority")
+				log.Info().Msgf("Batch Bulk Context done, exiting low-priority")
 				return
 			case accountAddresses, ok := <-lowPriorityChan:
 				if !ok {
@@ -172,12 +173,12 @@ func ProcessAddressChannels(
 				if len(accountAddresses) == 0 {
 					continue
 				}
-				log.Debug().Msgf("Batch Bulk Low-priority processing %d addresses, q(%d)", len(accountAddresses), len(lowPriorityChan))
+				log.Debug().Msgf("Batch Bulk Low-priority processing %d addresses", len(accountAddresses))
 
 				for {
 					select {
 					case <-ctx.Done():
-						log.Info().Msgf("Batch Context done, exiting low-priority")
+						log.Info().Msgf("Batch Bulk Context done, exiting low-priority")
 						return
 					case accountAddresses, ok := <-lowPriorityChan:
 						if !ok {
@@ -187,11 +188,11 @@ func ProcessAddressChannels(
 						if len(accountAddresses) == 0 {
 							continue
 						}
-						log.Debug().Msgf("Batch Bulk Low-priority processing %d addresses, q(%d)", len(accountAddresses), len(lowPriorityChan))
+						log.Info().Msgf("Batch Bulk Low-priority: %d addresses", len(accountAddresses))
 
 						err := backfillPublicKeys(ctx, accountAddresses, db, client, config)
 						if err != nil {
-							log.Error().Err(err).Msgf("Batch Low-priority failed to backfill addresses %d", len(accountAddresses))
+							log.Error().Err(err).Msgf("Batch Bulk Low-priority failed to backfill addresses %d", len(accountAddresses))
 						}
 					}
 				}

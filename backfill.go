@@ -18,7 +18,7 @@ func backfillPublicKeys(ctx context.Context, flowAddresses []flow.Address, db *p
 		log.Info().Msg("No more addresses to process. Backfill complete.")
 		return nil
 	}
-
+	log.Debug().Msgf("Backfilling %v", len(flowAddresses))
 	updatedRecords, err := ProcessAddressWithScript(ctx, params, flowAddresses, log.Logger, client, params.FetchSlowDownMs)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to process addresses, processing them individually")
@@ -33,12 +33,11 @@ func backfillPublicKeys(ctx context.Context, flowAddresses []flow.Address, db *p
 				continue
 			}
 			log.Debug().Msgf("updatedRecords: %v", updatedRecords)
-			recordCount, err := generateAndSaveCopyString(ctx, db, updatedRecords)
+			_, err = generateAndSaveCopyString(ctx, db, updatedRecords)
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to generate and save copy string")
 				continue
 			}
-			log.Info().Msgf("Records loaded: %v", recordCount)
 		}
 		return nil
 
@@ -47,12 +46,11 @@ func backfillPublicKeys(ctx context.Context, flowAddresses []flow.Address, db *p
 			log.Debug().Msgf("No updated records to process, %v", flowAddresses)
 			return nil
 		}
-		recordCount, err := generateAndSaveCopyString(ctx, db, updatedRecords)
+		_, err := generateAndSaveCopyString(ctx, db, updatedRecords)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to generate and save copy string")
 			return err
 		}
-		log.Info().Msgf("Records loaded: %v", recordCount)
 	}
 
 	return nil
