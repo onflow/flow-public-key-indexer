@@ -169,7 +169,7 @@ func (a *App) waitForChannelsToUpdateDistinct(ctx context.Context, highChan chan
 
 func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 	ctx := context.Background()
-	batchSize := a.p.BatchSize
+	batchSize := 100 //a.p.BatchSize configured batch size could to big
 	ignoreList := []string{}
 	maxWaitTime := time.Duration(a.p.SyncDataPolIntervalMin) * time.Second
 
