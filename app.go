@@ -169,32 +169,62 @@ func (a *App) waitForChannelsToUpdateDistinct(ctx context.Context, highChan chan
 
 func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 	ctx := context.Background()
-	startIndex := uint(a.p.SyncDataStartIndex)
-	pause := time.Duration(a.p.FetchSlowDownMs) * time.Millisecond
-	// continuously run the bulk load process
+	batchSize := a.p.BatchSize
+	ignoreList := []string{}
+	maxWaitTime := time.Duration(a.p.SyncDataPolIntervalMin) * time.Second
+
 	for {
 		start := time.Now()
 		currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(ctx, true)
 		if err != nil {
-			log.Error().Err(err).Msg("Bulk Could not get current block height from default flow client")
+			log.Error().Err(err).Msg("Bulk: Could not get current block height from default flow client")
+			time.Sleep(time.Minute)
+			continue
 		}
 
-		log.Info().Msgf("Bulk Start Load, %v", currentBlock.Height)
+		log.Info().Msgf("Bulk Start Load, block height: %v", currentBlock.Height)
 
-		ap, errLoad := InitAddressProvider(ctx, log.Logger, flow.ChainID(a.p.ChainId), currentBlock.ID, a.flowClient.Client, pause, startIndex)
-		if errLoad != nil {
-			log.Error().Err(errLoad).Msg("Bulk, could not initialize address provider")
+		addresses, err := a.DB.GetUniqueAddressesWithoutAlgos(batchSize, ignoreList)
+		ignoreList = addresses
+		if err != nil {
+			log.Error().Err(err).Msg("Bulk: Could not get unique addresses without algos")
+			time.Sleep(time.Minute)
+			continue
 		}
-		// set start index based on found address last index
-		startIndex = ap.lastAddressIndex
-		log.Debug().Msgf("Bulk Last address index %d", startIndex)
-		ap.GenerateAddressBatches(lowPrioAddressChan, a.p.BatchSize)
+
+		if len(addresses) == 0 {
+			log.Debug().Msg("Bulk: No new addresses to process, waiting before next attempt")
+			time.Sleep(maxWaitTime)
+			continue
+		}
+
+		log.Debug().Msgf("Bulk: Got %d addresses to process", len(addresses))
+
+		flowAddresses := make([]flow.Address, len(addresses))
+		for i, address := range addresses {
+			flowAddresses[i] = flow.HexToAddress(address)
+		}
+
+		// Try to send addresses to channel with a timeout
+		select {
+		case lowPrioAddressChan <- flowAddresses:
+		case <-time.After(30 * time.Second):
+			log.Warn().Msg("Bulk: Channel full, skipping this batch")
+			continue
+		}
+
+		// Wait for channel to clear or timeout
+		waitStart := time.Now()
+		for len(lowPrioAddressChan) > 0 {
+			if time.Since(waitStart) > maxWaitTime {
+				log.Warn().Msg("Bulk: Max wait time exceeded, continuing to next iteration")
+				break
+			}
+			time.Sleep(time.Second)
+		}
 
 		duration := time.Since(start)
-		log.Info().Msgf("Bulk End Load, duration %f min, %v", duration.Minutes(), currentBlock.Height)
-
-		// Add a delay if needed to prevent it from running too frequently
-		time.Sleep(time.Duration(a.p.SyncDataPolIntervalMin) * time.Minute) // Adjust the sleep duration as needed
+		log.Info().Msgf("Bulk End Load, duration %.2f min, block height: %v", duration.Minutes(), currentBlock.Height)
 	}
 }
 

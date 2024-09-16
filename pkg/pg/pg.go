@@ -147,28 +147,54 @@ func ToURL(port int, ssl bool, username, password, db, host string) string {
 		url.PathEscape(db) + mode
 }
 
-// MigrateDatabase adds new columns to the publickeyindexer table
+// MigrateDatabase adds new columns to the publickeyindexer table if they do not exist
 func (d *Database) MigrateDatabase() error {
 	log.Info().Msg("Migrating database: adding sigAlgo and hashAlgo columns")
 
-	addSigAlgoColumn := `ALTER TABLE publickeyindexer ADD COLUMN IF NOT EXISTS sigAlgo int;`
-	addHashAlgoColumn := `ALTER TABLE publickeyindexer ADD COLUMN IF NOT EXISTS hashAlgo int;`
-
-	_, cancelfunc := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancelfunc()
-
-	if err := d.DB.Exec(addSigAlgoColumn).Error; err != nil {
-		return fmt.Errorf("failed to add sigAlgo column: %w", err)
+	// Check if sigAlgo column exists
+	var sigAlgoExists bool
+	checkSigAlgoQuery := `SELECT EXISTS (
+		SELECT 1 
+		FROM information_schema.columns 
+		WHERE table_name = 'publickeyindexer' 
+		AND column_name = 'sigalgo'
+	);`
+	if err := d.DB.Raw(checkSigAlgoQuery).Scan(&sigAlgoExists).Error; err != nil {
+		return fmt.Errorf("failed to check sigalgo column existence: %w", err)
 	}
 
-	if err := d.DB.Exec(addHashAlgoColumn).Error; err != nil {
-		return fmt.Errorf("failed to add hashAlgo column: %w", err)
+	log.Info().Msgf("sigalgo Column Exists: %v", sigAlgoExists)
+	// Check if hashAlgo column exists
+	var hashAlgoExists bool
+	checkHashAlgoQuery := `SELECT EXISTS (
+		SELECT 1 
+		FROM information_schema.columns 
+		WHERE table_name = 'publickeyindexer' 
+		AND column_name = 'hashalgo'
+	);`
+	if err := d.DB.Raw(checkHashAlgoQuery).Scan(&hashAlgoExists).Error; err != nil {
+		return fmt.Errorf("failed to check hashAlgo column existence: %w", err)
+	}
+
+	log.Info().Msgf("hashalgo Column Exists: %v", hashAlgoExists)
+	// Add sigAlgo column if it doesn't exist
+	if !sigAlgoExists {
+		addSigAlgoColumn := `ALTER TABLE publickeyindexer ADD COLUMN IF NOT EXISTS sigalgo int;`
+		if err := d.DB.Exec(addSigAlgoColumn).Error; err != nil {
+			return fmt.Errorf("failed to add sigalgo column: %w", err)
+		}
+		log.Info().Msg("sigAlgo column added successfully")
+	}
+
+	// Add hashAlgo column if it doesn't exist
+	if !hashAlgoExists {
+		addHashAlgoColumn := `ALTER TABLE publickeyindexer ADD COLUMN IF NOT EXISTS hashalgo int;`
+		if err := d.DB.Exec(addHashAlgoColumn).Error; err != nil {
+			return fmt.Errorf("failed to add hashalgo column: %w", err)
+		}
+		log.Info().Msg("hashAlgo column added successfully")
 	}
 
 	log.Info().Msg("Database migration completed successfully")
 	return nil
 }
-
-type contextKey string
-
-const gormDBKey contextKey = "gorm:db"

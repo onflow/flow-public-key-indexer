@@ -33,7 +33,6 @@ func backfillPublicKeys(ctx context.Context, flowAddresses []flow.Address, db *p
 				log.Debug().Msgf("No updated records for %v", addr)
 				continue
 			}
-			log.Debug().Msgf("updatedRecords: %v", updatedRecords)
 			_, err = generateAndSaveCopyString(ctx, db, updatedRecords)
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to generate and save copy string")
