@@ -168,37 +168,28 @@ func (a *App) waitForChannelsToUpdateDistinct(ctx context.Context, highChan chan
 }
 
 func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
-	ctx := context.Background()
-	batchSize := 100 //a.p.BatchSize configured batch size could to big
+	batchSize := a.p.BatchSize
 	ignoreList := []string{}
-	maxWaitTime := time.Duration(a.p.SyncDataPolIntervalMin) * time.Second
+	maxWaitTime := time.Duration(a.p.SyncDataPolIntervalMin) * time.Minute
 
 	for {
 		start := time.Now()
-		currentBlock, err := a.flowClient.Client.GetLatestBlockHeader(ctx, true)
-		if err != nil {
-			log.Error().Err(err).Msg("Bulk: Could not get current block height from default flow client")
-			time.Sleep(time.Minute)
-			continue
-		}
-
-		log.Info().Msgf("Bulk Start Load, block height: %v", currentBlock.Height)
 
 		addresses, err := a.DB.GetUniqueAddressesWithoutAlgos(batchSize, ignoreList)
-		ignoreList = addresses
+		//		ignoreList = addresses
 		if err != nil {
-			log.Error().Err(err).Msg("Bulk: Could not get unique addresses without algos")
+			log.Error().Err(err).Msg("Bulk Could not get unique addresses without algos")
 			time.Sleep(time.Minute)
 			continue
 		}
 
 		if len(addresses) == 0 {
-			log.Debug().Msg("Bulk: No new addresses to process, waiting before next attempt")
+			log.Info().Msg("Bulk No new addresses to process, waiting before next attempt")
 			time.Sleep(maxWaitTime)
 			continue
 		}
 
-		log.Debug().Msgf("Bulk: Got %d addresses to process", len(addresses))
+		log.Debug().Msgf("Bulk addresses to process %d ", len(addresses))
 
 		flowAddresses := make([]flow.Address, len(addresses))
 		for i, address := range addresses {
@@ -209,7 +200,7 @@ func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 		select {
 		case lowPrioAddressChan <- flowAddresses:
 		case <-time.After(30 * time.Second):
-			log.Warn().Msg("Bulk: Channel full, skipping this batch")
+			log.Warn().Msg("Bulk Channel full, skipping this batch")
 			continue
 		}
 
@@ -217,14 +208,14 @@ func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 		waitStart := time.Now()
 		for len(lowPrioAddressChan) > 0 {
 			if time.Since(waitStart) > maxWaitTime {
-				log.Warn().Msg("Bulk: Max wait time exceeded, continuing to next iteration")
+				log.Warn().Msg("Bulk Max wait time exceeded, continuing to next iteration")
 				break
 			}
 			time.Sleep(time.Second)
 		}
 
 		duration := time.Since(start)
-		log.Info().Msgf("Bulk End Load, duration %.2f min, block height: %v", duration.Minutes(), currentBlock.Height)
+		log.Info().Msgf("Bulk End Load, duration %.2f min", duration.Minutes())
 	}
 }
 

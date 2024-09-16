@@ -291,6 +291,7 @@ func GetSignatureAlgoString(sigAlgoInt int) string {
 func (s *Store) GetUniqueAddressesWithoutAlgos(limit int, ignoreList []string) ([]string, error) {
 	var addresses []string
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Select distinct accounts where either sigalgo or hashalgo is NULL
 		query := tx.Table("publickeyindexer").
 			Select("DISTINCT account").
 			Where("(sigalgo IS NULL OR hashalgo IS NULL) AND publickey != ?", "blank")
@@ -300,7 +301,8 @@ func (s *Store) GetUniqueAddressesWithoutAlgos(limit int, ignoreList []string) (
 			query = query.Where("account NOT IN (?)", ignoreList)
 		}
 
-		return query.Order("account ASC"). // Change to DESC for descending order
+		// Fetch accounts with limit
+		return query.Order("account ASC"). // Change to DESC for descending order if needed
 							Limit(limit).
 							Pluck("account", &addresses).Error
 	})
