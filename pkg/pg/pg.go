@@ -57,11 +57,16 @@ func (d *Database) InitDatabase(purgeOnStart bool) error {
 		updatedBlockheight int,
 		uniquePublicKeys int
 		)`
+	createAddressProcessingTable := `CREATE TABLE IF NOT EXISTS addressprocessing (
+		account VARCHAR PRIMARY KEY,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
 	insertStatsTable := `INSERT INTO publickeyindexer_stats select 0,0,0 from publickeyindexer_stats having count(*) < 1;`
 	deleteIndex := `DROP INDEX IF EXISTS public_key_btree_idx`
 	deleteAccountIndex := `DROP INDEX IF EXISTS idx_publickeyindexer_account`
 	deleteTable := `DROP TABLE IF EXISTS publickeyindexer`
 	deleteTableStats := `DROP TABLE IF EXISTS publickeyindexer_stats`
+	deleteAddressProcessingTable := `DROP TABLE IF EXISTS addressprocessing`
 
 	_, cancelfunc := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancelfunc()
@@ -71,8 +76,11 @@ func (d *Database) InitDatabase(purgeOnStart bool) error {
 		d.DB.Exec(deleteAccountIndex)
 		d.DB.Exec(deleteTable)
 		d.DB.Exec(deleteTableStats)
+		d.DB.Exec(deleteAddressProcessingTable)
 	}
 	d.DB.Exec(createTable)
+
+	d.DB.Exec(createAddressProcessingTable)
 
 	d.DB.Exec(createIndex)
 

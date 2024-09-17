@@ -26,7 +26,7 @@ func backfillPublicKeys(ctx context.Context, flowAddresses []flow.Address, db *p
 		for _, addr := range flowAddresses {
 			updatedRecords, err := ProcessAddressWithScript(ctx, params, []flow.Address{addr}, log.Logger, client, params.FetchSlowDownMs)
 			if err != nil {
-				log.Error().Err(err).Msg("Failed to process address")
+				log.Error().Err(err).Msgf("Failed to process address %v", addr)
 				continue
 			}
 			if len(updatedRecords) == 0 {

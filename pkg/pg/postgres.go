@@ -288,30 +288,51 @@ func GetSignatureAlgoString(sigAlgoInt int) string {
 	}
 }
 
-func (s *Store) GetUniqueAddressesWithoutAlgos(limit int, ignoreList []string) ([]string, error) {
+func (s *Store) GetAccountsToProcess(limit int, ignoreList []string) ([]string, error) {
 	var addresses []string
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Select distinct accounts where either sigalgo or hashalgo is NULL
-		query := tx.Table("publickeyindexer").
-			Select("DISTINCT account").
-			Where("(sigalgo IS NULL OR hashalgo IS NULL) AND publickey != ?", "blank")
+		query := tx.Table("addressprocessing").
+			Select("account")
 
 		// Add condition for ignoring accounts in the ignore list if it's not empty
 		if len(ignoreList) > 0 {
 			query = query.Where("account NOT IN (?)", ignoreList)
 		}
 
-		// Fetch accounts with limit
-		return query.Order("account ASC"). // Change to DESC for descending order if needed
-							Limit(limit).
-							Pluck("account", &addresses).Error
+		// Fetch accounts with limit, no sorting
+		return query.
+			Limit(limit).
+			Pluck("account", &addresses).Error
 	})
 
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Error fetching unique addresses without algos")
+		s.logger.Error().Err(err).Msg("Error fetching accounts")
 	}
 
 	return addresses, err
+}
+
+func (s *Store) RemoveAccountsProcessing(addressesToRemove []string) error {
+	if len(addressesToRemove) == 0 {
+		s.logger.Warn().Msg("No accounts provided to remove")
+		return nil
+	}
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Delete rows where the address is in the addressesToRemove list
+		return tx.Table("addressprocessing").
+			Where("account IN (?)", addressesToRemove).
+			Delete(nil).Error
+	})
+
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Error removing addresses")
+		return err
+	}
+
+	s.logger.Debug().Msgf("Successfully removed %d addresses", len(addressesToRemove))
+	return nil
 }
 
 // Generate COPY-compatible string for batch inserting/updating data into PostgreSQL

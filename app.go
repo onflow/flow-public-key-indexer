@@ -30,7 +30,7 @@ type Params struct {
 	IgnoreRevoked          bool     `default:"true"`
 	WaitNumBlocks          int      `default:"200"`
 	BlockPolIntervalSec    int      `default:"180"`
-	SyncDataPolIntervalMin int      `default:"10"`
+	SyncDataPolIntervalMin int      `default:"1"`
 	SyncDataStartIndex     int      `default:"30000000"`
 	MaxBlockRange          int      `default:"600"`
 	FetchSlowDownMs        int      `default:"500"`
@@ -175,8 +175,11 @@ func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 	for {
 		start := time.Now()
 
-		addresses, err := a.DB.GetUniqueAddressesWithoutAlgos(batchSize, ignoreList)
-		//		ignoreList = addresses
+		// Fetch addresses to process
+		addresses, err := a.DB.GetAccountsToProcess(batchSize, ignoreList)
+		fetch := time.Since(start)
+		log.Debug().Msgf("Bulk Fetch Addresses, duration %.2f min", fetch.Seconds())
+
 		if err != nil {
 			log.Error().Err(err).Msg("Bulk Could not get unique addresses without algos")
 			time.Sleep(time.Minute)
@@ -204,7 +207,7 @@ func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 			continue
 		}
 
-		// Wait for channel to clear or timeout
+		// Wait for the channel to clear or timeout
 		waitStart := time.Now()
 		for len(lowPrioAddressChan) > 0 {
 			if time.Since(waitStart) > maxWaitTime {
@@ -214,8 +217,18 @@ func (a *App) bulkLoad(lowPrioAddressChan chan []flow.Address) {
 			time.Sleep(time.Second)
 		}
 
+		// After the channel clears, remove the addresses from the addressprocessing table
+		removeStart := time.Now()
+		err = a.DB.RemoveAccountsProcessing(addresses)
+		removeDuration := time.Since(removeStart)
+		if err != nil {
+			log.Error().Err(err).Msg("Bulk Could not remove processed addresses")
+		} else {
+			log.Debug().Msgf("Bulk Removed %d processed addresses, duration %.2f min", len(addresses), removeDuration.Minutes())
+		}
+
 		duration := time.Since(start)
-		log.Info().Msgf("Bulk End Load, duration %.2f min", duration.Minutes())
+		log.Info().Msgf("Bulk End Load, duration %.2f min, fetched %d addresses", duration.Minutes(), len(addresses))
 	}
 }
 

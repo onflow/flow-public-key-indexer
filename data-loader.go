@@ -162,7 +162,7 @@ func retryScriptUntilSuccess(
 			break
 		}
 		attempts = attempts + 1
-		log.Error().Err(err).Msgf("Script: %d attempt", attempts)
+		log.Error().Err(err).Msgf("Script: %d attempt, %v", attempts, arguments)
 
 		if attempts > maxAttemps || strings.Contains(err.Error(), "connection termination") {
 			// give up and don't retry
