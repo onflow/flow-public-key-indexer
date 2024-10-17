@@ -233,6 +233,7 @@ func processAddresses(
 				Account:   utils.Add0xPrefix(addrStr),
 				Weight:    0,
 				KeyId:     0,
+				IsRevoked: false,
 			})
 		} else {
 			for _, key := range acct.Keys {
@@ -242,6 +243,7 @@ func processAddresses(
 					Account:   utils.Add0xPrefix(addrStr),
 					Weight:    key.Weight,
 					KeyId:     int(key.Index),
+					IsRevoked: key.Revoked,
 					SigAlgo:   GetSignatureAlgoIndex(key.SigAlgo.String()),
 					HashAlgo:  GetHashingAlgoIndex(key.HashAlgo.String()),
 				})
