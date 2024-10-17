@@ -214,6 +214,7 @@ func getAccountKeysFromCadence(value cadence.Value) ([]model.PublicKeyAccountInd
 				Weight:    int(data.weight / 100000000),
 				SigAlgo:   int(data.signatureAlgorithm),
 				HashAlgo:  int(data.hashAlgorithm),
+				IsRevoked: data.isRevoked,
 			}
 
 			keys = append(keys, item)

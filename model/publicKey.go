@@ -1,13 +1,14 @@
 package model
 
 type AccountKey struct {
-	Account  string `json:"address"`
-	KeyId    int    `json:"keyId"`
-	Weight   int    `json:"weight"`
-	SigAlgo  int    `json:"sigAlgo"`
-	HashAlgo int    `json:"hashAlgo"`
-	Signing  string `json:"signing"`
-	Hashing  string `json:"hashing"`
+	Account   string `json:"address"`
+	KeyId     int    `json:"keyId"`
+	Weight    int    `json:"weight"`
+	SigAlgo   int    `json:"sigAlgo"`
+	HashAlgo  int    `json:"hashAlgo"`
+	IsRevoked bool   `json:"isRevoked"`
+	Signing   string `json:"signing"`
+	Hashing   string `json:"hashing"`
 }
 
 type PublicKeyIndexer struct {
@@ -22,6 +23,7 @@ type PublicKeyAccountIndexer struct {
 	Weight    int    `json:"weight" gorm:"column:weight"`
 	SigAlgo   int    `json:"sigAlgo" gorm:"column:sigalgo"`
 	HashAlgo  int    `json:"hashAlgo" gorm:"column:hashalgo"`
+	IsRevoked bool   `json:"isRevoked" gorm:"column:isrevoked"`
 }
 
 func (PublicKeyAccountIndexer) TableName() string {

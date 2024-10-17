@@ -237,13 +237,14 @@ func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer,
 	for _, pk := range publickeys {
 		a := utils.FixAccountLength(pk.Account)
 		acct := model.AccountKey{
-			Account:  a,
-			KeyId:    pk.KeyId,
-			Weight:   pk.Weight,
-			SigAlgo:  pk.SigAlgo,
-			HashAlgo: pk.HashAlgo,
-			Signing:  GetSignatureAlgoString(pk.SigAlgo),
-			Hashing:  GetHashingAlgoString(pk.HashAlgo),
+			Account:   a,
+			KeyId:     pk.KeyId,
+			Weight:    pk.Weight,
+			SigAlgo:   pk.SigAlgo,
+			HashAlgo:  pk.HashAlgo,
+			Signing:   GetSignatureAlgoString(pk.SigAlgo),
+			Hashing:   GetHashingAlgoString(pk.HashAlgo),
+			IsRevoked: pk.IsRevoked,
 		}
 		accts = append(accts, acct)
 
@@ -355,13 +356,14 @@ func (s Store) GenerateCopyStringForPublicKeyAccounts(ctx context.Context, publi
 		// Iterate through the batch and create the COPY-compatible string
 		for _, key := range publicKeys[i:end] {
 			// Generate the row, assuming PublicKeyAccountIndexer has these fields
-			row := fmt.Sprintf("%s%s%d%s%s%s%d%s%d%s%d%s",
+			row := fmt.Sprintf("%s%s%d%s%s%s%d%s%d%s%d%s%t%s",
 				key.Account, fieldDelimiter,
 				key.KeyId, fieldDelimiter,
 				key.PublicKey, fieldDelimiter,
 				key.Weight, fieldDelimiter,
 				key.SigAlgo, fieldDelimiter,
-				key.HashAlgo, recordDelimiter)
+				key.HashAlgo, fieldDelimiter,
+				key.IsRevoked, recordDelimiter)
 			// Append the row to the buffer
 			buffer.WriteString(row)
 		}
@@ -405,6 +407,7 @@ func (s Store) LoadPublicKeyIndexerFromReader(ctx context.Context, file io.Reade
             publickey TEXT NOT NULL,
             sigalgo INT,
             hashalgo INT,
+            isrevoked BOOLEAN DEFAULT FALSE,
             weight INT
         ) ON COMMIT DROP;
     `
@@ -415,7 +418,7 @@ func (s Store) LoadPublicKeyIndexerFromReader(ctx context.Context, file io.Reade
 	}
 
 	// Perform the COPY FROM STDIN operation
-	copyFromQuery := `COPY temp_publickeyindexer (account, keyid, publickey, weight, sigalgo, hashalgo) FROM STDIN WITH (FORMAT csv, DELIMITER E'\t', HEADER false);`
+	copyFromQuery := `COPY temp_publickeyindexer (account, keyid, publickey, weight, sigalgo, hashalgo, isrevoked) FROM STDIN WITH (FORMAT csv, DELIMITER E'\t', HEADER false);`
 	pgConn := tx.Conn().PgConn()
 	rowsCopied, err := pgConn.CopyFrom(ctx, file, copyFromQuery)
 	if err != nil {
@@ -425,10 +428,10 @@ func (s Store) LoadPublicKeyIndexerFromReader(ctx context.Context, file io.Reade
 
 	// Insert data from the temp table into the main table
 	insertQuery := `
-        INSERT INTO publickeyindexer (account, keyid, publickey, weight, sigalgo, hashalgo)
-        SELECT account, keyid, publickey, weight, sigalgo, hashalgo FROM temp_publickeyindexer
+        INSERT INTO publickeyindexer (account, keyid, publickey, weight, sigalgo, hashalgo, isrevoked)
+        SELECT account, keyid, publickey, weight, sigalgo, hashalgo, isrevoked FROM temp_publickeyindexer
         ON CONFLICT (account, keyid, publickey)
-        DO UPDATE SET sigalgo = EXCLUDED.sigalgo, hashalgo = EXCLUDED.hashalgo;
+        DO UPDATE SET sigalgo = EXCLUDED.sigalgo, hashalgo = EXCLUDED.hashalgo, isrevoked = EXCLUDED.isrevoked;
     `
 	cmdTag, err := tx.Exec(ctx, insertQuery)
 	if err != nil {

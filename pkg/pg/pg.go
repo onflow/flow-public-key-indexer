@@ -157,7 +157,7 @@ func ToURL(port int, ssl bool, username, password, db, host string) string {
 
 // MigrateDatabase adds new columns to the publickeyindexer table if they do not exist
 func (d *Database) MigrateDatabase() error {
-	log.Info().Msg("Migrating database: adding sigAlgo and hashAlgo columns")
+	log.Info().Msg("Migrating database: adding sigAlgo, hashAlgo, and isRevoked columns")
 
 	// Check if sigAlgo column exists
 	var sigAlgoExists bool
@@ -185,6 +185,20 @@ func (d *Database) MigrateDatabase() error {
 	}
 
 	log.Info().Msgf("hashalgo Column Exists: %v", hashAlgoExists)
+	// Check if isRevoked column exists
+	var isRevokedExists bool
+	checkIsRevokedQuery := `SELECT EXISTS (
+		SELECT 1 
+		FROM information_schema.columns 
+		WHERE table_name = 'publickeyindexer' 
+		AND column_name = 'isrevoked'
+	);`
+	if err := d.DB.Raw(checkIsRevokedQuery).Scan(&isRevokedExists).Error; err != nil {
+		return fmt.Errorf("failed to check isRevoked column existence: %w", err)
+	}
+
+	log.Info().Msgf("isRevoked Column Exists: %v", isRevokedExists)
+
 	// Add sigAlgo column if it doesn't exist
 	if !sigAlgoExists {
 		addSigAlgoColumn := `ALTER TABLE publickeyindexer ADD COLUMN IF NOT EXISTS sigalgo int;`
@@ -201,6 +215,22 @@ func (d *Database) MigrateDatabase() error {
 			return fmt.Errorf("failed to add hashalgo column: %w", err)
 		}
 		log.Info().Msg("hashAlgo column added successfully")
+	}
+
+	// Add isRevoked column if it doesn't exist
+	if !isRevokedExists {
+		addIsRevokedColumn := `ALTER TABLE publickeyindexer ADD COLUMN IF NOT EXISTS isrevoked BOOLEAN DEFAULT FALSE;`
+		if err := d.DB.Exec(addIsRevokedColumn).Error; err != nil {
+			return fmt.Errorf("failed to add isRevoked column: %w", err)
+		}
+		log.Info().Msg("isRevoked column added successfully")
+
+		// Update existing rows to set isrevoked to false
+		updateExistingRows := `UPDATE publickeyindexer SET isrevoked = FALSE WHERE isrevoked IS NULL;`
+		if err := d.DB.Exec(updateExistingRows).Error; err != nil {
+			return fmt.Errorf("failed to update existing rows with isRevoked value: %w", err)
+		}
+		log.Info().Msg("Existing rows updated with isRevoked set to false")
 	}
 
 	log.Info().Msg("Database migration completed successfully")

@@ -174,27 +174,9 @@ func ProcessAddressChannels(
 					continue
 				}
 				log.Debug().Msgf("Batch Bulk Low-priority processing %d addresses", len(accountAddresses))
-
-				for {
-					select {
-					case <-ctx.Done():
-						log.Info().Msgf("Batch Bulk Context done, exiting low-priority")
-						return
-					case accountAddresses, ok := <-lowPriorityChan:
-						if !ok {
-							log.Warn().Msgf("Batch Bulk Low-priority channel closed, exiting")
-							return
-						}
-						if len(accountAddresses) == 0 {
-							continue
-						}
-						log.Debug().Msgf("Batch Bulk Low-priority: %d addresses", len(accountAddresses))
-
-						err := backfillPublicKeys(ctx, accountAddresses, db, client, config)
-						if err != nil {
-							log.Error().Err(err).Msgf("Batch Bulk Low-priority failed to backfill addresses %d", len(accountAddresses))
-						}
-					}
+				err := backfillPublicKeys(ctx, accountAddresses, db, client, config)
+				if err != nil {
+					log.Error().Err(err).Msgf("Batch Bulk Low-priority failed to backfill addresses %d", len(accountAddresses))
 				}
 			}
 		}
