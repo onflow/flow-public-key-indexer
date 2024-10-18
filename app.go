@@ -11,7 +11,6 @@ import (
 	"github.com/onflow/cadence"
 	"github.com/onflow/flow-go-sdk"
 	"github.com/onflow/flow-go-sdk/access/grpc"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -73,7 +72,7 @@ func (a *App) Initialize(params Params) {
 	params.AllFlowUrls = setAllFlowUrls(params)
 	a.p = params
 
-	dbConfig := getPostgresConfig(params, log.Logger)
+	dbConfig := getPostgresConfig(params)
 
 	db := pg.NewStore(dbConfig, log.Logger)
 	err := db.Start(params.PurgeOnStart)
@@ -286,7 +285,7 @@ func processUrl(url string, collection []string) []string {
 	return collection
 }
 
-func getPostgresConfig(conf Params, logger zerolog.Logger) pg.DatabaseConfig {
+func getPostgresConfig(conf Params) pg.DatabaseConfig {
 	return pg.DatabaseConfig{
 		Host:     conf.PostgreSQLHost,
 		Password: conf.PostgreSQLPassword,

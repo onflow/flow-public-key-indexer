@@ -436,3 +436,20 @@ func (s Store) LoadPublicKeyIndexerFromReader(ctx context.Context, file io.Reade
 
 	return rowsAffected, nil
 }
+
+func (s *Store) StoreAddressesForProcessing(addresses []string) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Prepare the query with ON CONFLICT DO NOTHING
+		query := `INSERT INTO addressprocessing (account) VALUES (?) ON CONFLICT (account) DO NOTHING`
+
+		// Execute the query for each address
+		for _, addr := range addresses {
+			err := tx.Exec(query, addr).Error
+			if err != nil {
+				log.Error().Err(err).Msgf("Error storing address %v", addr)
+				return err
+			}
+		}
+		return nil
+	})
+}
