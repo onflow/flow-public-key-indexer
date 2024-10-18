@@ -23,7 +23,6 @@ import (
 	_ "embed"
 	"example/flow-key-indexer/model"
 	"example/flow-key-indexer/pkg/pg"
-	"example/flow-key-indexer/utils"
 	"strings"
 	"time"
 
@@ -103,33 +102,26 @@ func (s *DataLoader) RunIncAddressesLoader(addressChan chan []flow.Address, bloc
 		return blockHeight, err
 	}
 
-	var addresses []flow.Address
-	// filter out empty Public keys and send account addresses to get processed
-	// debug log num addresses found
-	for _, accountAddr := range accountAddresses {
-		s.DB.RemoveAccountForReloading(utils.Add0xPrefix(accountAddr))
-		addresses = append(addresses, flow.HexToAddress(accountAddr))
-	}
-
-	if len(addresses) > 0 {
-		addrs := unique(addresses)
-		log.Debug().Msgf("Inc addressChan: Before adding to channel, %d addresses, at %v", len(addresses), synchedBlockHeight)
+	if len(accountAddresses) > 0 {
+		addrs := uniqueToFlowAddress(accountAddresses)
+		log.Debug().Msgf("Inc addressChan: Before adding to channel, %d addresses, at %v", len(accountAddresses), synchedBlockHeight)
 
 		addressChan <- addrs
 
-		log.Debug().Msgf("Inc addressChan: After found %d addresses, at %v", len(addresses), synchedBlockHeight)
+		log.Debug().Msgf("Inc addressChan: After found %d addresses, at %v", len(accountAddresses), synchedBlockHeight)
 	}
 
 	return synchedBlockHeight, err
 }
 
-func unique(addresses []flow.Address) []flow.Address {
-	keys := make(map[flow.Address]bool)
+func uniqueToFlowAddress(addresses []string) []flow.Address {
+	keys := make(map[string]bool)
 	list := []flow.Address{}
 	for _, entry := range addresses {
 		if _, value := keys[entry]; !value {
 			keys[entry] = true
-			list = append(list, entry)
+			flowAddress := flow.HexToAddress(entry)
+			list = append(list, flowAddress)
 		}
 	}
 	return list

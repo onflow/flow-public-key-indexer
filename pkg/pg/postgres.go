@@ -80,7 +80,7 @@ func (s Store) BatchInsertPublicKeyAccounts(ctx context.Context, publicKeys []mo
 			{Name: "keyid"},
 			{Name: "publickey"},
 		}, // Detect conflict based on these three columns
-		DoUpdates: clause.AssignmentColumns([]string{"sigalgo", "hashalgo"}), // Update only SigAlgo and HashAlgo on conflict
+		DoUpdates: clause.AssignmentColumns([]string{"sigalgo", "hashalgo", "isrevoked"}), // Update SigAlgo, HashAlgo, and IsRevoked on conflict
 	}).CreateInBatches(publicKeys, batchSize)
 
 	if result.Error != nil {
@@ -214,14 +214,6 @@ func (s Store) GetLoadedBlockHeight() (uint64, error) {
 	}
 
 	return blockNumber, nil
-}
-
-func (s Store) RemoveAccountForReloading(account string) {
-	sqlStatement := `DELETE FROM publickeyindexer WHERE account = $2;`
-	err := s.db.Raw(sqlStatement, account).Error
-	if err != nil {
-		s.logger.Warn().Msgf("Could not remove record %v", account)
-	}
 }
 
 func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer, error) {
