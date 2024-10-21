@@ -26,7 +26,7 @@ type Params struct {
 	MaxAcctKeys            int      `default:"1000"`
 	BatchSize              int      `default:"50000"`
 	IgnoreZeroWeight       bool     `default:"true"`
-	IgnoreRevoked          bool     `default:"true"`
+	IgnoreRevoked          bool     `default:"false"`
 	WaitNumBlocks          int      `default:"200"`
 	BlockPolIntervalSec    int      `default:"180"`
 	SyncDataPolIntervalMin int      `default:"1"`
