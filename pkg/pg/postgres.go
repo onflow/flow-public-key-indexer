@@ -1,29 +1,36 @@
 package pg
 
 import (
+	"bytes"
 	"context"
-	"errors"
 	"example/flow-key-indexer/model"
+	"example/flow-key-indexer/utils"
 	"fmt"
+	"io"
 
 	_ "github.com/golang-migrate/migrate/database/postgres"
 	_ "github.com/golang-migrate/migrate/source/file"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Store struct {
 	conf   DatabaseConfig
 	logger zerolog.Logger
 	db     *Database
-	done   chan bool
+	dsn    string
+	done   chan struct{} // Semaphore channel to limit concurrencyj
 }
 
 func NewStore(conf DatabaseConfig, logger zerolog.Logger) *Store {
 	return &Store{
 		conf:   conf,
 		logger: logger,
-		done:   make(chan bool, 1),
+		dsn:    getDSN(conf),
+		done:   make(chan struct{}, 1), // Initialize semaphore with capacity 1
 	}
 }
 
@@ -35,104 +42,139 @@ func (s *Store) Start(purgeOnStart bool) error {
 	}
 
 	err = s.db.InitDatabase(purgeOnStart)
-	return err
+	if err != nil {
+		return err
+	}
 
+	// Call MigrateDatabase after initializing the database
+	err = s.db.MigrateDatabase()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to migrate database")
+		return err
+	}
+
+	s.logger.Info().Msg("Database migration completed successfully")
+	return nil
 }
 
 func (s Store) Stats() model.PublicKeyStatus {
 	status, _ := s.GetPublicKeyStats()
-	isBulkLoading := uint64(status.UpdatedToBlock) == uint64(0)
 
 	return model.PublicKeyStatus{
-		Count:          status.Count,
-		UpdatedToBlock: status.UpdatedToBlock,
-		PendingToBlock: status.PendingToBlock,
-		IsBulkLoading:  isBulkLoading,
+		Count:         status.Count,
+		LoadedToBlock: status.LoadedToBlock,
 	}
 }
 
-func (s Store) InsertPublicKeyAccounts(pkis []model.PublicKeyAccountIndexer) error {
-	ctx := context.Background()
-	err := s.db.RunInTransaction(ctx, func(ctx context.Context) error {
+func (s Store) BatchInsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) (int64, error) {
+	if len(publicKeys) == 0 {
+		return 0, nil
+	}
 
-		for _, publicKeyAccount := range pkis {
+	batchSize := len(publicKeys)
 
-			err := s.db.Create(&publicKeyAccount).Error
+	// Ensure conflict resolution happens when account, keyid, and publickey all match
+	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "account"},
+			{Name: "keyid"},
+			{Name: "publickey"},
+		}, // Detect conflict based on these three columns
+		DoUpdates: clause.AssignmentColumns([]string{"sigalgo", "hashalgo", "isrevoked"}), // Update SigAlgo, HashAlgo, and IsRevoked on conflict
+	}).CreateInBatches(publicKeys, batchSize)
 
-			if errors.Is(err, ErrIntegrityViolation) {
-				// this can occur when accounts get reloaded, expected
-				// leaving this here for documentation
-			} else {
-				if err != nil {
-					log.Debug().Err(err).Msg("inserting public key account record")
-				}
+	if result.Error != nil {
+		return 0, result.Error
+	}
 
-			}
-		}
+	return result.RowsAffected, nil
+}
+
+func (s Store) InsertPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) error {
+	if len(publicKeys) == 0 {
 		return nil
-	})
+	}
+
+	insertedCount, err := s.BatchInsertPublicKeyAccounts(ctx, publicKeys)
+
+	if insertedCount > 0 {
+		log.Info().Msgf("DB Inserted %v of %v public key accounts", insertedCount, len(publicKeys))
+	}
 
 	if err != nil {
-		if errors.Is(err, ErrIntegrityViolation) {
-			// ignore if data already stored
-			return nil
-		}
-
+		log.Error().Err(err).Msg("Transaction failed")
 		return err
 	}
 
 	return nil
 }
 
-func (s Store) UpdateUpdatedBlockHeight(blockNumber uint64) {
-	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET updatedBlockheight = %v`, blockNumber)
-	err := s.db.Raw(sqlStatement, blockNumber).Error
-	if err != nil {
-		s.logger.Error().Err(err).Msgf("could not update updated block height %v", blockNumber)
-	}
-}
+func (s Store) GetUniqueAddresses() (<-chan string, error) {
+	out := make(chan string)
+	query := "SELECT DISTINCT account FROM publickeyindexer;"
 
-func (s Store) GetUpdatedBlockHeight() (uint64, error) {
-	query := "SELECT updatedBlockheight FROM publickeyindexer_stats;"
-	var blockNumber uint64
+	go func() {
+		defer close(out)
 
-	err := s.db.Raw(
-		query,
-	).Scan(&blockNumber).Error
+		rows, err := s.db.Raw(query).Rows()
+		if err != nil {
+			log.Debug().Err(err).Msg("Error checking if accounts exist")
+			return
+		}
+		defer rows.Close()
 
-	if err != nil {
-		s.logger.Error().Err(err).Msgf("get loading block height %v", blockNumber)
-	}
+		var address string
+		for rows.Next() {
+			if err := rows.Scan(&address); err != nil {
+				log.Debug().Err(err).Msg("Error scanning address")
+				return
+			}
+			out <- address
+		}
 
-	return blockNumber, nil
+		if err := rows.Err(); err != nil {
+			log.Debug().Err(err).Msg("Error during rows iteration")
+		}
+	}()
+
+	return out, nil
 }
 
 func (s Store) GetPublicKeyStats() (model.PublicKeyStatus, error) {
-	query := "SELECT uniquePublicKeys, updatedBlockheight, pendingBlockheight FROM publickeyindexer_stats;"
-	type Result struct {
-		UniquePublicKeys   int `gorm:"column:uniquepublickeys"`
-		UpdatedBlockheight int `gorm:"column:updatedblockheight"`
-		PendingBlockheight int `gorm:"column:pendingblockheight"`
-	}
+	query := "SELECT uniquePublicKeys FROM publickeyindexer_stats;"
 
-	var result Result
+	var uniquePublicKeys int
 
-	err := s.db.Raw(query).Scan(&result).Error
+	err := s.db.Raw(query).Scan(&uniquePublicKeys).Error
 	if err != nil {
-		s.logger.Error().Err(err).Msgf("get status %v", result.UniquePublicKeys)
+		s.logger.Error().Err(err).Msgf("get status %v", uniquePublicKeys)
 	}
+
+	// get pending block height, multi field select is having issues
+	pending, _ := s.GetLoadedBlockHeight()
 	status := model.PublicKeyStatus{
-		Count:          result.UniquePublicKeys,
-		UpdatedToBlock: result.UpdatedBlockheight,
-		PendingToBlock: result.PendingBlockheight,
+		Count:         uniquePublicKeys,
+		LoadedToBlock: int(pending),
 	}
 	return status, nil
 }
 
 func (s Store) UpdateDistinctCount() {
-	cnt, _ := s.GetCount()
-	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET uniquePublicKeys = %v`, cnt)
-	err := s.db.Raw(sqlStatement).Error
+	// Acquire a slot in the semaphore
+	s.done <- struct{}{}
+	defer func() {
+		// Release the slot when finished
+		<-s.done
+	}()
+
+	cnt, err := s.GetCount()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Error getting count")
+		return
+	}
+	s.logger.Debug().Msgf("Updating unique public keys count to %v", cnt)
+	sqlStatement := `UPDATE publickeyindexer_stats SET uniquePublicKeys = ?`
+	err = s.db.Exec(sqlStatement, cnt).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update unique public keys %v", cnt)
 	}
@@ -145,22 +187,24 @@ func (s Store) GetCount() (int, error) {
 	err := s.db.Raw(query).Scan(&cnt).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("get distinct publickey count %v", cnt)
+		return 0, err
 	}
 
+	s.logger.Debug().Msgf("Distinct public key count is %v", cnt)
 	return cnt, nil
 }
 
-func (s Store) UpdateLoadingBlockHeight(blockNumber uint64) {
-	sqlStatement := fmt.Sprintf(`UPDATE publickeyindexer_stats SET pendingBlockheight = %v`, blockNumber)
+func (s Store) UpdateLoadedBlockHeight(blockNumber uint64) {
+	log.Debug().Msgf("Updating loaded block height to %v", blockNumber)
+	sqlStatement := `UPDATE publickeyindexer_stats SET pendingBlockheight = ?`
 
-	err := s.db.Raw(sqlStatement).Error
+	err := s.db.Exec(sqlStatement, blockNumber).Error
 	if err != nil {
 		s.logger.Error().Err(err).Msgf("could not update loading block height %v", blockNumber)
 	}
-
 }
 
-func (s Store) GetLoadingBlockHeight() (uint64, error) {
+func (s Store) GetLoadedBlockHeight() (uint64, error) {
 	query := "SELECT pendingBlockheight FROM publickeyindexer_stats;"
 	var blockNumber uint64
 
@@ -170,15 +214,6 @@ func (s Store) GetLoadingBlockHeight() (uint64, error) {
 	}
 
 	return blockNumber, nil
-}
-
-func (s Store) RemovePublicKeyInfo(publicKey string, account string) {
-	s.logger.Debug().Msgf("remove pk and acct %v %v", publicKey, account)
-	sqlStatement := `DELETE FROM publickeyindexer WHERE publickey = $1 and account = $2;`
-	err := s.db.Raw(sqlStatement, publicKey, account).Error
-	if err != nil {
-		s.logger.Warn().Msgf("Could not remove record %v %v", account, publicKey)
-	}
 }
 
 func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer, error) {
@@ -192,16 +227,229 @@ func (s Store) GetAccountsByPublicKey(publicKey string) (model.PublicKeyIndexer,
 	accts := []model.AccountKey{}
 	// consolidate account data
 	for _, pk := range publickeys {
+		a := utils.FixAccountLength(pk.Account)
 		acct := model.AccountKey{
-			Account: pk.Account,
-			KeyId:   pk.KeyId,
-			Weight:  pk.Weight,
+			Account:   a,
+			KeyId:     pk.KeyId,
+			Weight:    pk.Weight,
+			SigAlgo:   pk.SigAlgo,
+			HashAlgo:  pk.HashAlgo,
+			Signing:   GetSignatureAlgoString(pk.SigAlgo),
+			Hashing:   GetHashingAlgoString(pk.HashAlgo),
+			IsRevoked: pk.IsRevoked,
 		}
 		accts = append(accts, acct)
+
 	}
 	publicKeyAccounts := model.PublicKeyIndexer{
 		PublicKey: publicKey,
 		Accounts:  accts,
 	}
 	return publicKeyAccounts, err
+}
+
+func GetHashingAlgoString(hashAlgoInt int) string {
+	switch hashAlgoInt {
+	case 1:
+		return "SHA2_256"
+	case 2:
+		return "SHA2_384"
+	case 3:
+		return "SHA3_256"
+	case 4:
+		return "SHA3_384"
+	case 5:
+		return "KMAC128_BLS_BLS12_381"
+	case 6:
+		return "KECCAK_256"
+	default:
+		log.Warn().Msgf("Unknown hashing algorithm: %v", hashAlgoInt)
+		return "Unknown"
+	}
+}
+func GetSignatureAlgoString(sigAlgoInt int) string {
+	switch sigAlgoInt {
+	case 1:
+		return "ECDSA_P256"
+	case 2:
+		return "ECDSA_secp256k1"
+	case 3:
+		return "BLS_BLS12_381"
+	default:
+		log.Warn().Msgf("Unknown signature algorithm: %v", sigAlgoInt)
+		return "Unknown"
+	}
+}
+
+func (s *Store) GetAccountsToProcess(limit int, ignoreList []string) ([]string, error) {
+	var addresses []string
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Select distinct accounts where either sigalgo or hashalgo is NULL
+		query := tx.Table("addressprocessing").
+			Select("account")
+
+		// Add condition for ignoring accounts in the ignore list if it's not empty
+		if len(ignoreList) > 0 {
+			query = query.Where("account NOT IN (?)", ignoreList)
+		}
+
+		// Fetch accounts with limit, no sorting
+		return query.
+			Limit(limit).
+			Pluck("account", &addresses).Error
+	})
+
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Error fetching accounts")
+	}
+
+	return addresses, err
+}
+
+func (s *Store) RemoveAccountsProcessing(addressesToRemove []string) error {
+	if len(addressesToRemove) == 0 {
+		s.logger.Warn().Msg("No accounts provided to remove")
+		return nil
+	}
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Delete rows where the address is in the addressesToRemove list
+		return tx.Table("addressprocessing").
+			Where("account IN (?)", addressesToRemove).
+			Delete(nil).Error
+	})
+
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Error removing addresses")
+		return err
+	}
+
+	s.logger.Debug().Msgf("Successfully removed %d addresses", len(addressesToRemove))
+	return nil
+}
+
+// Generate COPY-compatible string for batch inserting/updating data into PostgreSQL
+func (s Store) GenerateCopyStringForPublicKeyAccounts(ctx context.Context, publicKeys []model.PublicKeyAccountIndexer) (string, error) {
+	if len(publicKeys) == 0 {
+		return "", nil
+	}
+
+	var buffer bytes.Buffer
+	const batchSize = 10000 // You can adjust this based on performance
+	fieldDelimiter := "\t"  // Tab delimiter for the COPY command (adjust based on requirements)
+	recordDelimiter := "\n"
+
+	for i := 0; i < len(publicKeys); i += batchSize {
+		end := i + batchSize
+		if end > len(publicKeys) {
+			end = len(publicKeys)
+		}
+
+		// Iterate through the batch and create the COPY-compatible string
+		for _, key := range publicKeys[i:end] {
+			// Generate the row, assuming PublicKeyAccountIndexer has these fields
+			row := fmt.Sprintf("%s%s%d%s%s%s%d%s%d%s%d%s%t%s",
+				key.Account, fieldDelimiter,
+				key.KeyId, fieldDelimiter,
+				key.PublicKey, fieldDelimiter,
+				key.Weight, fieldDelimiter,
+				key.SigAlgo, fieldDelimiter,
+				key.HashAlgo, fieldDelimiter,
+				key.IsRevoked, recordDelimiter)
+			// Append the row to the buffer
+			buffer.WriteString(row)
+		}
+	}
+
+	return buffer.String(), nil
+}
+
+func (s Store) LoadPublicKeyIndexerFromReader(ctx context.Context, file io.Reader) (int64, error) {
+
+	// Create a pgx pool or connection
+	pgxConn, err := pgxpool.New(ctx, s.dsn)
+	if err != nil {
+		log.Error().Err(err).Msg("Error creating pgx connection")
+		return 0, err
+	}
+	defer pgxConn.Close()
+
+	// Begin a transaction
+	tx, err := pgxConn.Begin(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Error beginning transaction")
+		return 0, err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback(ctx)
+		} else {
+			err = tx.Commit(ctx)
+			if err != nil {
+				log.Error().Err(err).Msg("Error committing transaction")
+			}
+		}
+	}()
+
+	// Create the temporary table
+	createTempTableQuery := `
+        CREATE TEMP TABLE temp_publickeyindexer (
+            account TEXT NOT NULL,
+            keyid INT NOT NULL,
+            publickey TEXT NOT NULL,
+            sigalgo INT,
+            hashalgo INT,
+            isrevoked BOOLEAN DEFAULT FALSE,
+            weight INT
+        ) ON COMMIT DROP;
+    `
+	_, err = tx.Exec(ctx, createTempTableQuery)
+	if err != nil {
+		log.Error().Err(err).Msg("Error creating temp table")
+		return 0, err
+	}
+
+	// Perform the COPY FROM STDIN operation
+	copyFromQuery := `COPY temp_publickeyindexer (account, keyid, publickey, weight, sigalgo, hashalgo, isrevoked) FROM STDIN WITH (FORMAT csv, DELIMITER E'\t', HEADER false);`
+	pgConn := tx.Conn().PgConn()
+	rowsCopied, err := pgConn.CopyFrom(ctx, file, copyFromQuery)
+	if err != nil {
+		log.Error().Err(err).Msg("Error during COPY FROM STDIN")
+		return 0, err
+	}
+
+	// Insert data from the temp table into the main table
+	insertQuery := `
+        INSERT INTO publickeyindexer (account, keyid, publickey, weight, sigalgo, hashalgo, isrevoked)
+        SELECT account, keyid, publickey, weight, sigalgo, hashalgo, isrevoked FROM temp_publickeyindexer
+        ON CONFLICT (account, keyid, publickey)
+        DO UPDATE SET sigalgo = EXCLUDED.sigalgo, hashalgo = EXCLUDED.hashalgo, isrevoked = EXCLUDED.isrevoked;
+    `
+	cmdTag, err := tx.Exec(ctx, insertQuery)
+	if err != nil {
+		log.Error().Err(err).Msg("Error executing INSERT INTO publickeyindexer")
+		return 0, err
+	}
+
+	rowsAffected := cmdTag.RowsAffected()
+	log.Info().Msgf("Batch Bulk Loaded %d rows, %d affected", rowsCopied.RowsAffected(), rowsAffected)
+
+	return rowsAffected, nil
+}
+
+func (s *Store) StoreAddressesForProcessing(addresses []string) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Prepare the query with ON CONFLICT DO NOTHING
+		query := `INSERT INTO addressprocessing (account) VALUES (?) ON CONFLICT (account) DO NOTHING`
+
+		// Execute the query for each address
+		for _, addr := range addresses {
+			err := tx.Exec(query, addr).Error
+			if err != nil {
+				log.Error().Err(err).Msgf("Error storing address %v", addr)
+				return err
+			}
+		}
+		return nil
+	})
 }

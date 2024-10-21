@@ -14,8 +14,6 @@ var (
 	ErrMultiRows = errors.New("pg: many rows returned, one expected")
 	// ErrInvalidEnumValue typical error when the enum value is invalid
 	ErrInvalidEnumValue = errors.New("pg: invalid value for enum")
-	// ErrIntegrityViolation is returned when an integrity constraint is violated
-	ErrIntegrityViolation = errors.New("pg: integrity violation")
 )
 
 func convertError(err error) error {

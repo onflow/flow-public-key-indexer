@@ -1,9 +1,14 @@
 package model
 
 type AccountKey struct {
-	Account string `json:"address"`
-	KeyId   int    `json:"keyId"`
-	Weight  int    `json:"weight"`
+	Account   string `json:"address"`
+	KeyId     int    `json:"keyId"`
+	Weight    int    `json:"weight"`
+	SigAlgo   int    `json:"sigAlgo"`
+	HashAlgo  int    `json:"hashAlgo"`
+	IsRevoked bool   `json:"isRevoked"`
+	Signing   string `json:"signing"`
+	Hashing   string `json:"hashing"`
 }
 
 type PublicKeyIndexer struct {
@@ -16,6 +21,9 @@ type PublicKeyAccountIndexer struct {
 	Account   string `json:"account" gorm:"column:account"`
 	KeyId     int    `json:"keyId" gorm:"column:keyid"`
 	Weight    int    `json:"weight" gorm:"column:weight"`
+	SigAlgo   int    `json:"sigAlgo" gorm:"column:sigalgo"`
+	HashAlgo  int    `json:"hashAlgo" gorm:"column:hashalgo"`
+	IsRevoked bool   `json:"isRevoked" gorm:"column:isrevoked"`
 }
 
 func (PublicKeyAccountIndexer) TableName() string {
@@ -24,7 +32,7 @@ func (PublicKeyAccountIndexer) TableName() string {
 
 type PublicKeyBlockHeight struct {
 	UpdatedBlockheight uint64 `gorm:"column:updatedBlockheight"`
-	PendingBlockheight uint64 `gorm:"column:pendingBlockheight"`
+	LoadToBlockHeight  uint64 `gorm:"column:pendingBlockheight"`
 }
 
 func (PublicKeyBlockHeight) TableName() string {
@@ -32,9 +40,7 @@ func (PublicKeyBlockHeight) TableName() string {
 }
 
 type PublicKeyStatus struct {
-	Count          int  `json:"publicKeyCount"`
-	CurrentBlock   int  `json:"currentBlockHeight"`
-	UpdatedToBlock int  `json:"updatedToBlockHeight"`
-	PendingToBlock int  `json:"pendingLoadBlockHeight"`
-	IsBulkLoading  bool `json:"isBulkLoading"`
+	Count         int `json:"publicKeyCount"`
+	CurrentBlock  int `json:"currentBlockHeight"`
+	LoadedToBlock int `json:"LoadToBlockHeight"`
 }
