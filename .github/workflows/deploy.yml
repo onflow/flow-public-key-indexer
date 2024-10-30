@@ -9,7 +9,56 @@ env:
   DOCKER_IMAGE_URL: ${{ vars.GCP_DOCKER_IMAGE_URL }}:${{ github.sha }}
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: ubuntu
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: keyindexer
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CA certificates
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates
+          update-ca-certificates
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.22
+      - name: Install dependencies
+        run: go mod tidy
+      - name: Install GCC
+        run: |
+          apt-get update
+          apt-get install -y gcc
+      - name: Run tests
+        env:
+          KEYIDX_POSTGRESQLHOST: postgres
+          KEYIDX_POSTGRESQLPORT: 5432
+          KEYIDX_POSTGRESQLUSERNAME: postgres
+          KEYIDX_POSTGRESQLPASSWORD: password
+          KEYIDX_POSTGRESQLDATABASE: keyindexer
+          CGO_ENABLED: 1
+          GOOS: linux
+          GOARCH: amd64
+          CC: gcc
+          CGO_CFLAGS: "-O2 -D__BLST_PORTABLE__"
+        run: go test ./... -v
+
   build:
+    needs: [test]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -30,12 +79,25 @@ jobs:
         with:
           project_id: ${{ vars.GAR_PROJECT_ID }}
       
-      - name: Docker Auth
-        run: |-
-          gcloud auth configure-docker ${{ vars.GAR_LOCATION }}-docker.pkg.dev
-          docker build -t ${{ env.DOCKER_IMAGE_URL }} --file Dockerfile .
-          docker push ${{ env.DOCKER_IMAGE_URL }}
+      - name: Install GCC and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libc6-dev
       
+      - name: Build and Push Docker image
+        env:
+          CGO_ENABLED: 1
+          CGO_CFLAGS: "-O2 -D__BLST_PORTABLE__"
+          GOARCH: amd64
+        run: |
+          gcloud auth configure-docker ${{ vars.GAR_LOCATION }}-docker.pkg.dev
+          docker build -t ${{ env.DOCKER_IMAGE_URL }} \
+            --build-arg CGO_ENABLED=$CGO_ENABLED \
+            --build-arg CGO_CFLAGS="$CGO_CFLAGS" \
+            --build-arg GOARCH=$GOARCH \
+            --file Dockerfile .
+          docker push ${{ env.DOCKER_IMAGE_URL }}
+
   deploy-staging:
     needs: [build]
     environment: staging

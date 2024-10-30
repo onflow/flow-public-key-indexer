@@ -1,26 +1,40 @@
 package main
 
 import (
-	logger "log"
+	"flag"
+	"fmt"
 
 	"github.com/axiomzen/envconfig"
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"example/flow-key-indexer/cmd/addresses"
 )
 
 func main() {
+	//  go run . -get-addresses
+	getAddressesFlag := flag.Bool("get-addresses", false, "Run GetAddresses function")
+	flag.Parse()
+
+	if *getAddressesFlag {
+		fmt.Println("Running GetAddresses...")
+		addresses.GetAddresses()
+		return
+	}
+
 	a := App{}
 
 	if err := godotenv.Load("./.env"); err != nil {
-		logger.Fatal("error loading godotenv")
+		log.Fatal().Err(err).Msg("Error loading .env file")
 	}
+
 	var p Params
 	err := envconfig.Process("KEYIDX", &p)
-
 	if err != nil {
-		logger.Fatal(err.Error())
+		log.Fatal().Err(err).Msg("Error processing environment variables")
 	}
+
 	lvl, err := zerolog.ParseLevel(p.LogLevel)
 	if err == nil {
 		zerolog.SetGlobalLevel(lvl)
@@ -28,7 +42,5 @@ func main() {
 	}
 
 	a.Initialize(p)
-
 	a.Run()
-
 }
