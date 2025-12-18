@@ -182,21 +182,60 @@ func retryScriptUntilSuccess(
 
 func getAccountKeysFromCadence(value cadence.Value) ([]model.PublicKeyAccountIndexer, error) {
 	allAccountsKeys := []model.PublicKeyAccountIndexer{}
-	for _, allKeys := range value.(cadence.Dictionary).Pairs {
-		address := allKeys.Key.(cadence.Address)
-		counter := 0
+
+	// Safe type assertion for the top-level dictionary
+	dict, ok := value.(cadence.Dictionary)
+	if !ok {
+		log.Warn().Msgf("Script result is not a Dictionary, got type: %T", value)
+		return allAccountsKeys, nil
+	}
+
+	for _, allKeys := range dict.Pairs {
+		address, addrOk := allKeys.Key.(cadence.Address)
+		if !addrOk {
+			log.Warn().Msgf("Key is not an Address, got type: %T", allKeys.Key)
+			continue
+		}
+		accountAddress := address.String()
 		keys := []model.PublicKeyAccountIndexer{}
-		for _, nameCodePair := range allKeys.Value.(cadence.Dictionary).Pairs {
-			rawStruct := nameCodePair.Value.(cadence.Struct)
+
+		keysDict, keysOk := allKeys.Value.(cadence.Dictionary)
+		if !keysOk {
+			log.Warn().Msgf("Keys value for address %s is not a Dictionary, got type: %T", accountAddress, allKeys.Value)
+			continue
+		}
+
+		for _, nameCodePair := range keysDict.Pairs {
+			rawStruct, structOk := nameCodePair.Value.(cadence.Struct)
+			if !structOk {
+				log.Warn().Msgf("Key value is not a Struct for address %s, got type: %T", accountAddress, nameCodePair.Value)
+				continue
+			}
+
 			fields := rawStruct.FieldsMappedByName()
+
+			// Safe field extraction with type checking
+			hashAlgoVal, ok1 := fields["hashAlgorithm"].(cadence.UInt8)
+			isRevokedVal, ok2 := fields["isRevoked"].(cadence.Bool)
+			weightVal, ok3 := fields["weight"].(cadence.UFix64)
+			publicKeyVal, ok4 := fields["publicKey"].(cadence.String)
+			keyIndexVal, ok5 := fields["keyIndex"].(cadence.Int)
+			sigAlgoVal, ok6 := fields["signatureAlgorithm"].(cadence.UInt8)
+
+			if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || !ok6 {
+				log.Error().Msgf("Field type mismatch for address %s. Types: hashAlgorithm=%T, isRevoked=%T, weight=%T, publicKey=%T, keyIndex=%T, signatureAlgorithm=%T",
+					accountAddress, fields["hashAlgorithm"], fields["isRevoked"], fields["weight"], fields["publicKey"], fields["keyIndex"], fields["signatureAlgorithm"])
+				continue
+			}
+
 			data := PublicKey{
-				hashAlgorithm:      uint8(fields["hashAlgorithm"].(cadence.UInt8)),
-				isRevoked:          bool(fields["isRevoked"].(cadence.Bool)),
-				weight:             uint64(fields["weight"].(cadence.UFix64)),
-				publicKey:          string(fields["publicKey"].(cadence.String)),
-				keyIndex:           int(fields["keyIndex"].(cadence.Int).Int()),
-				signatureAlgorithm: uint8(fields["signatureAlgorithm"].(cadence.UInt8)),
-				account:            address.String(),
+				hashAlgorithm:      uint8(hashAlgoVal),
+				isRevoked:          bool(isRevokedVal),
+				weight:             uint64(weightVal),
+				publicKey:          string(publicKeyVal),
+				keyIndex:           int(keyIndexVal.Int()),
+				signatureAlgorithm: uint8(sigAlgoVal),
+				account:            accountAddress,
 			}
 
 			item := model.PublicKeyAccountIndexer{
@@ -210,7 +249,6 @@ func getAccountKeysFromCadence(value cadence.Value) ([]model.PublicKeyAccountInd
 			}
 
 			keys = append(keys, item)
-			counter = counter + 1
 		}
 		allAccountsKeys = append(allAccountsKeys, keys...)
 	}
