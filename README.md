@@ -153,8 +153,8 @@ serves up json object</p>
 }
 ```
 
-<p>sigAlgo - signing: 1 - ECDSA_P256, 2 - ECDSA_secp256k1, 3 - ECDSA_P384, 4 - ECDSA_P521, 5 - ECDSA_secp256r1</p>
-<p>hashAlgo - hashing: 1 - SHA2_256, 2 - SHA3_256, 3 - SHA2_384, 4 - SHA3_384, 5 - SHA2_512, 6 - SHA3_512</p>
+<p>sigAlgo - signing: 2 - ECDSA_P256, 3 - ECDSA_secp256k1</p>
+<p>hashAlgo - hashing: 1 - SHA2_256, 3 - SHA3_256</p>
 
 * `GET /status`
 <p>note: this endpoint gives ability to see if the server is active and updating</p>
