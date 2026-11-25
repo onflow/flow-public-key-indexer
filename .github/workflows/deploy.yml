@@ -49,10 +49,11 @@ jobs:
           go-version: 1.22
       - name: Install dependencies
         run: go mod tidy
-      - name: Install GCC
+      - name: Install GCC and libc headers
+        # libc6-dev provides stdlib.h etc. The removed build job had it; this one was missing it.
         run: |
           apt-get update
-          apt-get install -y gcc
+          apt-get install -y gcc libc6-dev
       - name: Run tests
         env:
           KEYIDX_POSTGRESQLHOST: postgres
