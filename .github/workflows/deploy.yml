@@ -1,14 +1,15 @@
 name: "CI"
 
-# After the sslmode fix (#21, 2026-11-25) the default is `KEYIDX_POSTGRESQLSSL=true`,
-# which this workflow's Postgres service container cannot satisfy — set it to false just
-# for CI.
+# test job: runs on PRs and main. `KEYIDX_POSTGRESQLSSL=false` for the plaintext Postgres
+# service container (the sslmode fix in #21 made the Params default true end-to-end).
+# Container pinned to ubuntu:22.04 because ubuntu:latest now ships gcc 14, which rejects
+# `typedef _Bool bool` in onflow/crypto's bls12381_utils.h under C23 defaults.
 #
-# The build / deploy-staging / deploy-production jobs that pushed to GCP Artifact Registry
-# and rolled Cloud Run were removed in the same change: the GCP Cloud Run service is being
-# decommissioned in favour of the AWS ECS Fargate deployment in the flow-wallet AWS account
-# (onflow/ff-wallet-infrastructure terraform/aws-devex-services/). A new workflow targeting
-# AWS ECR + ECS will land separately once the cutover is scheduled.
+# deploy job: on main push only. Builds the Docker image and pushes to the flow-wallet
+# account's ECR repo (devex/public-key-indexer), then rolls the ECS Fargate service managed
+# by onflow/ff-wallet-infrastructure terraform/aws-devex-services/. Uses GitHub OIDC +
+# AWS_ROLE_ARN (repo variable) → assume into the key-indexer-ci role in the flow-wallet
+# account (172759659913, us-east-2).
 
 on:
   push:
@@ -21,9 +22,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Pin to 22.04 (gcc 11, C17 default). ubuntu:latest now ships gcc 14, which rejects
-    # `typedef _Bool bool` in onflow/crypto's bls12381_utils.h because `bool` is a
-    # reserved keyword under C23.
     container: ubuntu:22.04
     services:
       postgres:
@@ -53,7 +51,6 @@ jobs:
       - name: Install dependencies
         run: go mod tidy
       - name: Install GCC and libc headers
-        # libc6-dev provides stdlib.h etc. The removed build job had it; this one was missing it.
         run: |
           apt-get update
           apt-get install -y gcc libc6-dev
@@ -71,3 +68,58 @@ jobs:
           CC: gcc
           CGO_CFLAGS: "-O2 -D__BLST_PORTABLE__"
         run: go test ./... -v
+
+  deploy:
+    needs: [test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: us-east-2
+      ECR_REPOSITORY: devex/public-key-indexer
+      ECS_CLUSTER: devex-production
+      ECS_SERVICE: key-indexer
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Dockerfile COPYs a .env file from the build context; create an empty one so the
+      # build doesn't fail on main where there's none committed. Real env lives in the ECS
+      # task definition.
+      - name: Ensure empty .env exists for the Docker build
+        run: touch .env
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE="$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+          docker build \
+            --platform=linux/amd64 \
+            --build-arg CGO_ENABLED=1 \
+            --build-arg "CGO_CFLAGS=-O2 -D__BLST_PORTABLE__" \
+            --build-arg GOARCH=amd64 \
+            -t "$IMAGE" \
+            .
+          docker push "$IMAGE"
+          docker tag  "$IMAGE" "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest"
+          docker push "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest"
+
+      - name: Roll ECS service
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment \
+            --no-cli-pager
