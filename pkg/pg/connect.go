@@ -21,17 +21,19 @@ func (cl CustomLogger) Printf(format string, v ...interface{}) {
 }
 
 func getDSN(conf DatabaseConfig) string {
-
-	dsn := fmt.Sprintf(
-		"host=%s user=%s password=%s dbname=%s port=%d sslmode=disable",
+	sslmode := "disable"
+	if conf.SSL {
+		sslmode = "require"
+	}
+	return fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=%s port=%d sslmode=%s",
 		conf.Host,
 		conf.User,
 		conf.Password,
 		conf.Name,
 		conf.Port,
+		sslmode,
 	)
-
-	return dsn
 }
 
 // connectPG will attempt to connect to a Postgres database.

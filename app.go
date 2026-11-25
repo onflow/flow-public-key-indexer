@@ -292,5 +292,6 @@ func getPostgresConfig(conf Params) pg.DatabaseConfig {
 		Name:     conf.PostgreSQLDatabase,
 		User:     conf.PostgreSQLUsername,
 		Port:     int(conf.PostgreSQLPort),
+		SSL:      conf.PostgreSQLSSL,
 	}
 }

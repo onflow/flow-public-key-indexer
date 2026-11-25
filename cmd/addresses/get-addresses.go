@@ -26,13 +26,23 @@ func GetAddresses() {
 	// Set up logger
 	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
-	// Create database configuration
+	// Create database configuration. SSL defaults to true to match the main app's Params
+	// default; set KEYIDX_POSTGRESQLSSL=false for local plaintext dev containers.
+	ssl := true
+	if v := os.Getenv("KEYIDX_POSTGRESQLSSL"); v != "" {
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			log.Fatalf("Invalid KEYIDX_POSTGRESQLSSL value %q: %v", v, err)
+		}
+		ssl = parsed
+	}
 	dbConfig := pg.DatabaseConfig{
 		Host:     os.Getenv("KEYIDX_POSTGRESQLHOST"),
 		Port:     mustAtoi(os.Getenv("KEYIDX_POSTGRESQLPORT")),
 		User:     os.Getenv("KEYIDX_POSTGRESQLUSERNAME"),
 		Password: os.Getenv("KEYIDX_POSTGRESQLPASSWORD"),
 		Name:     os.Getenv("KEYIDX_POSTGRESQLDATABASE"),
+		SSL:      ssl,
 	}
 
 	// Create and start the database
