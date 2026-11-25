@@ -1,12 +1,22 @@
-name: "Deploy to Cloud Run"
+name: "CI"
+
+# After the sslmode fix (#21, 2026-11-25) the default is `KEYIDX_POSTGRESQLSSL=true`,
+# which this workflow's Postgres service container cannot satisfy — set it to false just
+# for CI.
+#
+# The build / deploy-staging / deploy-production jobs that pushed to GCP Artifact Registry
+# and rolled Cloud Run were removed in the same change: the GCP Cloud Run service is being
+# decommissioned in favour of the AWS ECS Fargate deployment in the flow-wallet AWS account
+# (onflow/ff-wallet-infrastructure terraform/aws-devex-services/). A new workflow targeting
+# AWS ECR + ECS will land separately once the cutover is scheduled.
 
 on:
   push:
     branches:
       - main
-
-env:
-  DOCKER_IMAGE_URL: ${{ vars.GCP_DOCKER_IMAGE_URL }}:${{ github.sha }}
+  pull_request:
+    branches:
+      - main
 
 jobs:
   test:
@@ -50,96 +60,10 @@ jobs:
           KEYIDX_POSTGRESQLUSERNAME: postgres
           KEYIDX_POSTGRESQLPASSWORD: password
           KEYIDX_POSTGRESQLDATABASE: keyindexer
+          KEYIDX_POSTGRESQLSSL: "false"
           CGO_ENABLED: 1
           GOOS: linux
           GOARCH: amd64
           CC: gcc
           CGO_CFLAGS: "-O2 -D__BLST_PORTABLE__"
         run: go test ./... -v
-
-  build:
-    needs: [test]
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Google auth
-        id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          token_format: 'access_token'
-          workload_identity_provider: ${{ vars.BUILDER_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.BUILDER_SERVICE_ACCOUNT }}
-      
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
-        with:
-          project_id: ${{ vars.GAR_PROJECT_ID }}
-      
-      - name: Install GCC and dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc libc6-dev
-      
-      - name: Build and Push Docker image
-        env:
-          CGO_ENABLED: 1
-          CGO_CFLAGS: "-O2 -D__BLST_PORTABLE__"
-          GOARCH: amd64
-        run: |
-          gcloud auth configure-docker ${{ vars.GAR_LOCATION }}-docker.pkg.dev
-          docker build -t ${{ env.DOCKER_IMAGE_URL }} \
-            --build-arg CGO_ENABLED=$CGO_ENABLED \
-            --build-arg CGO_CFLAGS="$CGO_CFLAGS" \
-            --build-arg GOARCH=$GOARCH \
-            --file Dockerfile .
-          docker push ${{ env.DOCKER_IMAGE_URL }}
-
-  deploy-staging:
-    needs: [build]
-    environment: staging
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Google auth
-        id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          token_format: 'access_token'
-          workload_identity_provider: ${{ vars.DEPLOYER_GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
-      - name: Deploy to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v1
-        with:
-          service: ${{ vars.GCP_SERVICE }}
-          image: ${{ env.DOCKER_IMAGE_URL }}
-
-  deploy-production:
-    needs: [build]
-    environment: production
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Google auth
-        id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          token_format: 'access_token'
-          workload_identity_provider: ${{ vars.DEPLOYER_GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
-      - name: Deploy to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v1
-        with:
-          service: ${{ vars.GCP_SERVICE }}
-          image: ${{ env.DOCKER_IMAGE_URL }}
