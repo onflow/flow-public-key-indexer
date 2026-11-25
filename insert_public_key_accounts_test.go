@@ -25,6 +25,7 @@ func TestDuplicatedKeysInBatches(t *testing.T) {
 		Name:     p.PostgreSQLDatabase,
 		User:     p.PostgreSQLUsername,
 		Port:     int(p.PostgreSQLPort),
+		SSL:      p.PostgreSQLSSL,
 	}
 	db := pg.NewStore(dbConfig, log.Logger)
 	_ = db.Start(true)

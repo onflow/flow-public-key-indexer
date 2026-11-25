@@ -11,6 +11,10 @@ type DatabaseConfig struct {
 	Name     string
 	Host     string
 	Port     int
+	// SSL toggles `sslmode=require` vs `sslmode=disable` in the DSN. Default true in the
+	// app's Params struct so hosted Postgres (RDS, Cloud SQL via TCP) works; set to false
+	// for local dev against a plaintext container.
+	SSL bool
 }
 
 // Config is the service configuration
