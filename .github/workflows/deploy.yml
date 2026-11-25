@@ -21,7 +21,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    container: ubuntu
+    # Pin to 22.04 (gcc 11, C17 default). ubuntu:latest now ships gcc 14, which rejects
+    # `typedef _Bool bool` in onflow/crypto's bls12381_utils.h because `bool` is a
+    # reserved keyword under C23.
+    container: ubuntu:22.04
     services:
       postgres:
         image: postgres
